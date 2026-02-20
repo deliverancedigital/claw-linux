@@ -155,6 +155,8 @@ static long http_post_json(const char *url, const char *body, char **out)
     curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &rb);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT,        (long)REQUEST_TIMEOUT_S);
     curl_easy_setopt(curl, CURLOPT_USERAGENT,      "claw-tui/1.0");
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
 
     CURLcode res = curl_easy_perform(curl);
     long status = 0;
