@@ -1,0 +1,201 @@
+# claw-linux CI/CD pipeline
+#
+# Jobs
+# ----
+#  security-scan   Dockerfile lint (Hadolint) + filesystem vulnerability scan
+#                  (Trivy) — runs on every push and pull request.
+#
+#  build-and-test  Compile all 20 C binaries and run the smoke-test suite on
+#                  every push and pull request.
+#
+#  docker          Build the runtime Docker image, scan it with Trivy, and
+#                  (on pushes to main) push it to the GitHub Container Registry
+#                  and upload a tarball artifact.
+#
+#  iso             Build a bootable bare-metal ISO image (privileged Docker).
+#                  Only runs on pushes to main; uploads the ISO as an artifact.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ── Security & lint scanning ───────────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lint the Dockerfile for best-practice violations
+      - name: Lint Dockerfile (Hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          # Treat warnings as failures for the build gate
+          failure-threshold: warning
+          # Ignore: DL3018 (pin apk package versions — not pinned by design)
+          ignore: DL3018
+
+      # Scan the repository filesystem for known CVEs in dependencies
+      - name: Scan filesystem (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: '1'
+          # Only block on fixable findings to avoid noise from unpatched base packages
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          # Scan Python requirements and OS packages
+          scanners: vuln,secret
+
+  # ── Build C binaries + run smoke tests ────────────────────────────────────
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: security-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gcc make libcurl4-openssl-dev pkg-config
+
+      - name: Build all C binaries
+        run: make binaries
+
+      - name: Run smoke tests
+        run: make test
+
+  # ── Docker image: build → scan → (main) push + artifact ───────────────────
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Determine image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      # Build but do not push yet — we need the image locally for Trivy
+      - name: Build Docker image (load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Scan the built image for vulnerabilities before publishing
+      - name: Scan Docker image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          scanners: vuln
+
+      # Only authenticate and push on merges to main
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Export the image as a downloadable artifact for every build
+      - name: Export Docker image tarball
+        run: |
+          docker save \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}" \
+            | gzip > claw-linux-docker.tar.gz
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claw-linux-docker-${{ github.sha }}
+          path: claw-linux-docker.tar.gz
+          retention-days: 7
+
+  # ── Bootable ISO (main branch only) ───────────────────────────────────────
+  iso:
+    name: ISO Build
+    runs-on: ubuntu-latest
+    needs: docker
+    # ISO build is expensive — only run on merges to main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the dedicated iso-builder Docker stage (Alpine SDK + GRUB + xorriso)
+      - name: Build ISO builder image
+        run: |
+          docker build \
+            --target iso-builder \
+            -t claw-linux-iso-builder:ci \
+            .
+
+      # Run the builder with --privileged (required for chroot + mksquashfs)
+      - name: Build bootable ISO
+        run: |
+          mkdir -p dist
+          docker run --rm --privileged \
+            -v "$(pwd)/dist:/dist" \
+            claw-linux-iso-builder:ci
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claw-linux-iso-${{ github.sha }}
+          path: dist/claw-linux-*.iso
+          retention-days: 30
+          if-no-files-found: error

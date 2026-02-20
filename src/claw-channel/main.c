@@ -38,10 +38,24 @@
  *                              (default http://127.0.0.1:18789/api/event)
  *   CLAW_CHANNEL_SECRET        Optional shared secret for webhook validation
  *                              (compared against X-Claw-Secret header)
- *   CLAW_TELEGRAM_TOKEN        Telegram bot token (used to validate
- *                              X-Telegram-Bot-Api-Secret-Token header)
+ *   CLAW_TELEGRAM_TOKEN        Telegram bot token (inbound validation and
+ *                              outbound sendMessage)
  *   CLAW_WHATSAPP_TOKEN        WhatsApp verify token (used during one-time
  *                              webhook setup GET challenge-response)
+ *
+ * Outbound dispatch (POST /send)
+ * ------------------------------
+ *   POST /send with JSON body:
+ *     { "channel": "telegram|discord|slack|line|whatsapp|webhook",
+ *       "message": "...", "recipient": "..." }
+ *
+ *   Additional environment variables for outbound:
+ *   CLAW_DISCORD_WEBHOOK       Discord incoming webhook URL
+ *   CLAW_SLACK_WEBHOOK         Slack incoming webhook URL
+ *   CLAW_WEBHOOK_URL           Generic outbound webhook URL
+ *   CLAW_LINE_TOKEN            LINE channel access token
+ *   CLAW_WHATSAPP_PHONE_ID     WhatsApp Business phone number ID
+ *   CLAW_WHATSAPP_API_TOKEN    WhatsApp Business API bearer token
  *
  * Build (requires libcurl-dev):
  *   cc -O2 -Wall -Wextra -o claw-channel main.c -lcurl
@@ -76,9 +90,17 @@ static volatile int g_running      = 1;
 static int          g_port         = DEFAULT_PORT;
 static const char  *g_bind_addr    = DEFAULT_BIND;
 static char         g_gateway_url[MAX_URL_BYTES] = DEFAULT_GATEWAY_URL;
-static char         g_secret[256]  = {0};
+static char         g_secret[256]   = {0};
 static char         g_tg_token[256] = {0};
 static char         g_wa_token[256] = {0}; /* WhatsApp hub.verify_token */
+
+/* ---- outbound config (for POST /send) ------------------------------------- */
+static char g_discord_webhook[MAX_URL_BYTES] = {0};
+static char g_slack_webhook[MAX_URL_BYTES]   = {0};
+static char g_webhook_url[MAX_URL_BYTES]     = {0};
+static char g_line_token[512]               = {0}; /* LINE channel access token */
+static char g_wa_phone_id[128]              = {0}; /* WhatsApp phone number ID */
+static char g_wa_api_token[512]             = {0}; /* WhatsApp API bearer token */
 
 /* ---- signal handlers ----------------------------------------------------- */
 static void on_sigterm(int sig) { (void)sig; g_running = 0; }
@@ -290,7 +312,274 @@ static int forward_to_gateway(const char *json_envelope)
     return (res == CURLE_OK) ? 1 : 0;
 }
 
-/* ---- Channel normalizers ------------------------------------------------- */
+/* ---- General JSON POST helper --------------------------------------------- */
+
+/*
+ * POST `body` (JSON) to `url`.  Any `extra_hdrs` curl_slist is appended to
+ * the default Content-Type header.  TLS peer and host verification are always
+ * enabled for HTTPS URLs.  Returns 1 on CURL transport success and writes the
+ * HTTP response code into *http_code (if non-NULL).
+ */
+static int curl_post_json(const char *url,
+                          struct curl_slist *extra_hdrs,
+                          const char *body,
+                          long *http_code)
+{
+    CURL *curl = curl_easy_init();
+    if (!curl) return 0;
+
+    CurlBuf rb = { malloc(4096), 0, 4096 };
+    if (!rb.data) { curl_easy_cleanup(curl); return 0; }
+    rb.data[0] = '\0';
+
+    struct curl_slist *hdrs = NULL;
+    hdrs = curl_slist_append(hdrs, "Content-Type: application/json");
+    struct curl_slist *eh = extra_hdrs;
+    while (eh) {
+        hdrs = curl_slist_append(hdrs, eh->data);
+        eh = eh->next;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL,            url);
+    curl_easy_setopt(curl, CURLOPT_POST,           1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS,     body);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,  (long)strlen(body));
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER,     hdrs);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  curl_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &rb);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT,        10L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (http_code && res == CURLE_OK)
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, http_code);
+
+    curl_slist_free_all(hdrs);
+    curl_easy_cleanup(curl);
+    free(rb.data);
+    return (res == CURLE_OK) ? 1 : 0;
+}
+
+/* ---- Outbound channel senders (POST /send) -------------------------------- */
+
+static void send_telegram(const char *message, const char *recipient,
+                          char *out, size_t out_sz)
+{
+    if (!g_tg_token[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"error\":\"CLAW_TELEGRAM_TOKEN not set\"}");
+        return;
+    }
+    if (!recipient || !recipient[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,"
+            "\"error\":\"recipient (chat_id) required for Telegram\"}");
+        return;
+    }
+
+    char url[MAX_URL_BYTES];
+    snprintf(url, sizeof(url),
+        "https://api.telegram.org/bot%s/sendMessage", g_tg_token);
+
+    char msg_esc[MAX_FIELD_BYTES * 2] = {0};
+    char rec_esc[1024] = {0};
+    json_escape(message,   msg_esc, sizeof(msg_esc));
+    json_escape(recipient, rec_esc, sizeof(rec_esc));
+
+    char body[MAX_FIELD_BYTES + 1100];
+    snprintf(body, sizeof(body),
+        "{\"chat_id\":\"%s\",\"text\":\"%s\"}", rec_esc, msg_esc);
+
+    long code = 0;
+    int ok = curl_post_json(url, NULL, body, &code);
+    if (ok && code == 200)
+        snprintf(out, out_sz, "{\"ok\":true,\"channel\":\"telegram\"}");
+    else
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"channel\":\"telegram\","
+            "\"error\":\"HTTP %ld\"}", code);
+}
+
+static void send_discord(const char *message, char *out, size_t out_sz)
+{
+    if (!g_discord_webhook[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"error\":\"CLAW_DISCORD_WEBHOOK not set\"}");
+        return;
+    }
+
+    char msg_esc[MAX_FIELD_BYTES * 2] = {0};
+    json_escape(message, msg_esc, sizeof(msg_esc));
+
+    char body[MAX_FIELD_BYTES + 20];
+    snprintf(body, sizeof(body), "{\"content\":\"%s\"}", msg_esc);
+
+    long code = 0;
+    int ok = curl_post_json(g_discord_webhook, NULL, body, &code);
+    if (ok && (code == 200 || code == 204))
+        snprintf(out, out_sz, "{\"ok\":true,\"channel\":\"discord\"}");
+    else
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"channel\":\"discord\","
+            "\"error\":\"HTTP %ld\"}", code);
+}
+
+static void send_slack(const char *message, char *out, size_t out_sz)
+{
+    if (!g_slack_webhook[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"error\":\"CLAW_SLACK_WEBHOOK not set\"}");
+        return;
+    }
+
+    char msg_esc[MAX_FIELD_BYTES * 2] = {0};
+    json_escape(message, msg_esc, sizeof(msg_esc));
+
+    char body[MAX_FIELD_BYTES + 15];
+    snprintf(body, sizeof(body), "{\"text\":\"%s\"}", msg_esc);
+
+    long code = 0;
+    int ok = curl_post_json(g_slack_webhook, NULL, body, &code);
+    if (ok && code == 200)
+        snprintf(out, out_sz, "{\"ok\":true,\"channel\":\"slack\"}");
+    else
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"channel\":\"slack\","
+            "\"error\":\"HTTP %ld\"}", code);
+}
+
+static void send_line(const char *message, const char *recipient,
+                      char *out, size_t out_sz)
+{
+    if (!g_line_token[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"error\":\"CLAW_LINE_TOKEN not set\"}");
+        return;
+    }
+    if (!recipient || !recipient[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,"
+            "\"error\":\"recipient (userId) required for LINE\"}");
+        return;
+    }
+
+    char msg_esc[MAX_FIELD_BYTES * 2] = {0};
+    char rec_esc[512] = {0};
+    json_escape(message,   msg_esc, sizeof(msg_esc));
+    json_escape(recipient, rec_esc, sizeof(rec_esc));
+
+    char body[MAX_FIELD_BYTES + 600];
+    snprintf(body, sizeof(body),
+        "{\"to\":\"%s\","
+        "\"messages\":[{\"type\":\"text\",\"text\":\"%s\"}]}",
+        rec_esc, msg_esc);
+
+    char auth_hdr[580];
+    snprintf(auth_hdr, sizeof(auth_hdr),
+        "Authorization: Bearer %s", g_line_token);
+    struct curl_slist *extra = curl_slist_append(NULL, auth_hdr);
+
+    long code = 0;
+    int ok = curl_post_json("https://api.line.me/v2/bot/message/push",
+                             extra, body, &code);
+    curl_slist_free_all(extra);
+
+    if (ok && code == 200)
+        snprintf(out, out_sz, "{\"ok\":true,\"channel\":\"line\"}");
+    else
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"channel\":\"line\","
+            "\"error\":\"HTTP %ld\"}", code);
+}
+
+static void send_whatsapp(const char *message, const char *recipient,
+                          char *out, size_t out_sz)
+{
+    if (!g_wa_phone_id[0] || !g_wa_api_token[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"error\":"
+            "\"CLAW_WHATSAPP_PHONE_ID and CLAW_WHATSAPP_API_TOKEN required\"}");
+        return;
+    }
+    if (!recipient || !recipient[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,"
+            "\"error\":\"recipient (phone number) required for WhatsApp\"}");
+        return;
+    }
+
+    char url[MAX_URL_BYTES];
+    snprintf(url, sizeof(url),
+        "https://graph.facebook.com/v17.0/%s/messages", g_wa_phone_id);
+
+    char msg_esc[MAX_FIELD_BYTES * 2] = {0};
+    char rec_esc[256] = {0};
+    json_escape(message,   msg_esc, sizeof(msg_esc));
+    json_escape(recipient, rec_esc, sizeof(rec_esc));
+
+    char body[MAX_FIELD_BYTES + 700];
+    snprintf(body, sizeof(body),
+        "{\"messaging_product\":\"whatsapp\","
+        "\"to\":\"%s\","
+        "\"type\":\"text\","
+        "\"text\":{\"body\":\"%s\"}}",
+        rec_esc, msg_esc);
+
+    char auth_hdr[580];
+    snprintf(auth_hdr, sizeof(auth_hdr),
+        "Authorization: Bearer %s", g_wa_api_token);
+    struct curl_slist *extra = curl_slist_append(NULL, auth_hdr);
+
+    long code = 0;
+    int ok = curl_post_json(url, extra, body, &code);
+    curl_slist_free_all(extra);
+
+    if (ok && code == 200)
+        snprintf(out, out_sz, "{\"ok\":true,\"channel\":\"whatsapp\"}");
+    else
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"channel\":\"whatsapp\","
+            "\"error\":\"HTTP %ld\"}", code);
+}
+
+static void send_webhook(const char *message, const char *recipient,
+                         char *out, size_t out_sz)
+{
+    if (!g_webhook_url[0]) {
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"error\":\"CLAW_WEBHOOK_URL not set\"}");
+        return;
+    }
+
+    char msg_esc[MAX_FIELD_BYTES * 2] = {0};
+    char rec_esc[512] = {0};
+    json_escape(message,                msg_esc, sizeof(msg_esc));
+    json_escape(recipient ? recipient : "", rec_esc, sizeof(rec_esc));
+
+    char body[MAX_FIELD_BYTES + 600];
+    snprintf(body, sizeof(body),
+        "{\"message\":\"%s\",\"sender\":\"claw\",\"recipient\":\"%s\"}",
+        msg_esc, rec_esc);
+
+    struct curl_slist *extra = NULL;
+    if (g_secret[0]) {
+        char sec_hdr[300];
+        snprintf(sec_hdr, sizeof(sec_hdr), "X-Claw-Secret: %s", g_secret);
+        extra = curl_slist_append(NULL, sec_hdr);
+    }
+
+    long code = 0;
+    int ok = curl_post_json(g_webhook_url, extra, body, &code);
+    if (extra) curl_slist_free_all(extra);
+
+    if (ok && code == 200)
+        snprintf(out, out_sz, "{\"ok\":true,\"channel\":\"webhook\"}");
+    else
+        snprintf(out, out_sz,
+            "{\"ok\":false,\"channel\":\"webhook\","
+            "\"error\":\"HTTP %ld\"}", code);
+}
 
 /*
  * Normalize a Telegram Bot API update payload.
@@ -609,7 +898,49 @@ static void handle_connection(int cfd, const char *req, size_t req_len)
         return;
     }
 
-    /* Build normalised envelope */
+    /* Outbound channel dispatch */
+    if (strcmp(path, "/send") == 0) {
+        char channel_name[64]         = {0};
+        char message[MAX_FIELD_BYTES] = {0};
+        char recipient[512]           = {0};
+        json_get_string(body, "channel",   channel_name, sizeof(channel_name));
+        json_get_string(body, "message",   message,      sizeof(message));
+        json_get_string(body, "recipient", recipient,     sizeof(recipient));
+
+        if (!channel_name[0]) {
+            http_respond(cfd, 400,
+                "{\"ok\":false,\"error\":\"\\\"channel\\\" field required\"}");
+            return;
+        }
+        if (!message[0]) {
+            http_respond(cfd, 400,
+                "{\"ok\":false,\"error\":\"\\\"message\\\" field required\"}");
+            return;
+        }
+
+        char result[2048] = {0};
+        if      (strcmp(channel_name, "telegram")  == 0)
+            send_telegram(message, recipient, result, sizeof(result));
+        else if (strcmp(channel_name, "discord")   == 0)
+            send_discord(message, result, sizeof(result));
+        else if (strcmp(channel_name, "slack")     == 0)
+            send_slack(message, result, sizeof(result));
+        else if (strcmp(channel_name, "line")      == 0)
+            send_line(message, recipient, result, sizeof(result));
+        else if (strcmp(channel_name, "whatsapp")  == 0)
+            send_whatsapp(message, recipient, result, sizeof(result));
+        else if (strcmp(channel_name, "webhook")   == 0 ||
+                 strcmp(channel_name, "generic")   == 0)
+            send_webhook(message, recipient, result, sizeof(result));
+        else
+            snprintf(result, sizeof(result),
+                "{\"ok\":false,\"error\":\"Unknown channel\"}");
+
+        http_respond(cfd, 200, result);
+        return;
+    }
+
+    /* Build normalised inbound envelope */
     char envelope[MAX_REQUEST_BYTES];
     int ok = 0;
 
@@ -631,7 +962,7 @@ static void handle_connection(int cfd, const char *req, size_t req_len)
             "{\"ok\":false,\"error\":\"Unknown channel path\","
             "\"paths\":[\"/channel/telegram\",\"/channel/discord\","
             "\"/channel/slack\",\"/channel/line\",\"/channel/whatsapp\","
-            "\"/channel/webhook\"]}");
+            "\"/channel/webhook\",\"/send\"]}");
         return;
     }
 
@@ -660,9 +991,16 @@ int main(int argc, char *argv[])
         p = getenv("CLAW_CHANNEL_BIND");   if (p) g_bind_addr = p;
         p = getenv("CLAW_GATEWAY_URL");
         if (p) strncpy(g_gateway_url, p, sizeof(g_gateway_url) - 1);
-        p = getenv("CLAW_CHANNEL_SECRET"); if (p) strncpy(g_secret, p, sizeof(g_secret) - 1);
-        p = getenv("CLAW_TELEGRAM_TOKEN"); if (p) strncpy(g_tg_token, p, sizeof(g_tg_token) - 1);
-        p = getenv("CLAW_WHATSAPP_TOKEN"); if (p) strncpy(g_wa_token, p, sizeof(g_wa_token) - 1);
+        p = getenv("CLAW_CHANNEL_SECRET"); if (p) strncpy(g_secret,       p, sizeof(g_secret) - 1);
+        p = getenv("CLAW_TELEGRAM_TOKEN"); if (p) strncpy(g_tg_token,     p, sizeof(g_tg_token) - 1);
+        p = getenv("CLAW_WHATSAPP_TOKEN"); if (p) strncpy(g_wa_token,     p, sizeof(g_wa_token) - 1);
+        /* outbound */
+        p = getenv("CLAW_DISCORD_WEBHOOK");    if (p) strncpy(g_discord_webhook, p, sizeof(g_discord_webhook) - 1);
+        p = getenv("CLAW_SLACK_WEBHOOK");      if (p) strncpy(g_slack_webhook,   p, sizeof(g_slack_webhook) - 1);
+        p = getenv("CLAW_WEBHOOK_URL");        if (p) strncpy(g_webhook_url,     p, sizeof(g_webhook_url) - 1);
+        p = getenv("CLAW_LINE_TOKEN");         if (p) strncpy(g_line_token,      p, sizeof(g_line_token) - 1);
+        p = getenv("CLAW_WHATSAPP_PHONE_ID");  if (p) strncpy(g_wa_phone_id,     p, sizeof(g_wa_phone_id) - 1);
+        p = getenv("CLAW_WHATSAPP_API_TOKEN"); if (p) strncpy(g_wa_api_token,    p, sizeof(g_wa_api_token) - 1);
     }
 
     int opt;
@@ -719,6 +1057,7 @@ int main(int argc, char *argv[])
         "  POST /channel/line      — LINE Messaging API\n"
         "  POST /channel/whatsapp  — WhatsApp Business API\n"
         "  POST /channel/webhook   — Generic webhook\n"
+        "  POST /send              — Outbound dispatch (channel+message+recipient)\n"
         "  GET  /health            — liveness probe\n"
         "  Forwarding to: %s\n",
         g_bind_addr, g_port, g_gateway_url);

@@ -131,6 +131,25 @@ Inside `claw-tui`:
 - `/help` — show all commands
 - `/quit` or Ctrl-D — exit
 
+## Setup Wizard
+
+Run the interactive wizard to configure the agent, ports, and channels in one step:
+
+```bash
+sh /opt/claw/scripts/claw-wizard.sh
+```
+
+The wizard walks through:
+1. LLM provider (Ollama / OpenAI / Anthropic)
+2. Model name
+3. API keys
+4. Agent identity
+5. **Network / Ports** — gateway port (default 18789), channel port (default 18790), and bind addresses
+6. Channel integrations (Telegram, Discord, Slack)
+7. Deployment target (Docker or bare metal)
+
+It writes all settings to `/opt/claw/config/claw.env`.
+
 ## Building from Source
 
 ```bash
@@ -332,10 +351,16 @@ claw-linux/
 | `CLAW_GATEWAY_PORT` | Gateway listen port | `18789` |
 | `CLAW_GATEWAY_BIND` | Gateway bind address | `0.0.0.0` |
 | `CLAW_CHANNEL_PORT` | Channel adapter port | `18790` |
+| `CLAW_CHANNEL_BIND` | Channel adapter bind address | `0.0.0.0` |
 | `CLAW_CHANNEL_SECRET` | Shared secret for webhook validation | — |
-| `CLAW_TELEGRAM_TOKEN` | Telegram bot token | — |
-| `CLAW_DISCORD_WEBHOOK` | Discord incoming webhook URL | — |
-| `CLAW_SLACK_WEBHOOK` | Slack incoming webhook URL | — |
+| `CLAW_TELEGRAM_TOKEN` | Telegram bot token (inbound + outbound) | — |
+| `CLAW_DISCORD_WEBHOOK` | Discord incoming/outbound webhook URL | — |
+| `CLAW_SLACK_WEBHOOK` | Slack incoming/outbound webhook URL | — |
+| `CLAW_WEBHOOK_URL` | Generic outbound webhook URL | — |
+| `CLAW_LINE_TOKEN` | LINE channel access token (outbound) | — |
+| `CLAW_WHATSAPP_TOKEN` | WhatsApp hub verify token (inbound setup) | — |
+| `CLAW_WHATSAPP_PHONE_ID` | WhatsApp Business phone number ID (outbound) | — |
+| `CLAW_WHATSAPP_API_TOKEN` | WhatsApp Business API bearer token (outbound) | — |
 | `CLAW_CRONTAB` | Path to crontab file | `/opt/claw/config/crontab` |
 
 ## Security
