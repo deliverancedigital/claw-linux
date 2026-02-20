@@ -5,7 +5,7 @@
 set -e
 
 echo "==> Installing agent Python dependencies…"
-pip3 install --no-cache-dir -r /opt/claw/agent/requirements.txt
+pip3 install --no-cache-dir --break-system-packages -r /opt/claw/agent/requirements.txt
 
 echo "==> Creating runtime directories…"
 mkdir -p /var/lib/claw/memory

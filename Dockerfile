@@ -62,7 +62,7 @@ RUN addgroup -S claw && adduser -S -G claw -h /home/claw claw
 
 # Install Python dependencies for the agent
 COPY agent/requirements.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir -r /tmp/requirements.txt && \
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
 # Copy compiled C skill binaries from builder stage

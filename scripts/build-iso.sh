@@ -138,7 +138,7 @@ cp -r "$CLAW_REPO/config" "$ROOTFS/opt/claw/config"
 cp -r "$CLAW_REPO/scripts" "$ROOTFS/opt/claw/scripts"
 
 # Install Python dependencies
-chroot "$ROOTFS" pip3 install --no-cache-dir \
+chroot "$ROOTFS" pip3 install --no-cache-dir --break-system-packages \
     pyyaml requests
 
 # ── Stage 5: Create claw user and directories ──────────────────────────────
