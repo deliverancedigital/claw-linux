@@ -1,0 +1,78 @@
+services:
+
+  # ── Autonomous agent ──────────────────────────────────────────────────────
+  agent:
+    build:
+      context: .
+      target: runtime
+    image: claw-linux:latest
+    container_name: claw-agent
+    restart: unless-stopped
+    environment:
+      CLAW_MODE: agent
+      OPENCLAW_MODEL_PROVIDER: ollama
+      OPENCLAW_MODEL_NAME: llama3.2
+      OPENCLAW_OLLAMA_HOST: http://ollama:11434
+      OPENCLAW_AGENT_NAME: Claw
+      OPENCLAW_LOG_LEVEL: INFO
+    volumes:
+      - claw-memory:/var/lib/claw/memory
+      - claw-workspace:/workspace
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - claw-net
+
+  # ── Agent REST API (optional — set CLAW_MODE=api to enable) ──────────────
+  agent-api:
+    build:
+      context: .
+      target: runtime
+    image: claw-linux:latest
+    container_name: claw-api
+    restart: unless-stopped
+    environment:
+      CLAW_MODE: api
+      OPENCLAW_MODEL_PROVIDER: ollama
+      OPENCLAW_MODEL_NAME: llama3.2
+      OPENCLAW_OLLAMA_HOST: http://ollama:11434
+      OPENCLAW_AGENT_NAME: Claw
+      OPENCLAW_LOG_LEVEL: INFO
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - claw-memory:/var/lib/claw/memory
+      - claw-workspace:/workspace
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - claw-net
+    profiles:
+      - api   # only started with: docker compose --profile api up
+
+  # ── Ollama local LLM server ───────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: claw-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - claw-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  claw-memory:
+  claw-workspace:
+  ollama-models:
+
+networks:
+  claw-net:
+    driver: bridge
