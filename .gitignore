@@ -4,6 +4,12 @@ build/
 *.tar.gz
 *.iso
 
+# C build output
+src/bin/
+
+# CodeQL
+_codeql_detected_source_root
+
 # Python
 __pycache__/
 *.py[cod]
