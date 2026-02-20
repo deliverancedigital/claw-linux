@@ -31,6 +31,7 @@ from memory.store import MemoryStore
 from skills import shell as skill_shell
 from skills import filesystem as skill_fs
 from skills import web as skill_web
+from skills import channel as skill_channel
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,11 @@ You are {name}, an autonomous AI agent running on claw-linux (Alpine Linux).
 You have access to the following skills — call them by including a JSON block
 in your response with exactly this format (one call per response):
 
-  SKILL_CALL: {{"skill": "shell",  "command": "<bash command>", "timeout": 30}}
-  SKILL_CALL: {{"skill": "fs",     "op": "read|write|list", "path": "<path>", "content": "<text for write>"}}
-  SKILL_CALL: {{"skill": "web",    "url": "<https://...>", "method": "GET", "timeout": 15}}
+  SKILL_CALL: {{"skill": "shell",   "command": "<bash command>", "timeout": 30}}
+  SKILL_CALL: {{"skill": "fs",      "op": "read|write|list", "path": "<path>", "content": "<text for write>"}}
+  SKILL_CALL: {{"skill": "web",     "url": "<https://...>", "method": "GET", "timeout": 15}}
+  SKILL_CALL: {{"skill": "channel", "channel": "telegram|discord|slack|webhook",
+                "message": "<text>", "recipient": "<chat id or empty>"}}
 
 After each skill result you will receive an OBSERVATION block.  When you have
 enough information to answer, respond normally without any SKILL_CALL block.
@@ -164,6 +167,18 @@ def _dispatch_skill(call: dict[str, Any], cfg: Config) -> str:
             call.get("url", ""),
             method=call.get("method", "GET"),
             timeout=int(call.get("timeout", 15)),
+        )
+
+    elif skill == "channel":
+        if not cfg.skill_enabled("channel"):
+            return "ERROR: channel skill is disabled in configuration"
+        ch_name = call.get("channel", "")
+        ch_cfg  = cfg.skill_cfg("channel").get("channels", {}).get(ch_name, {})
+        result  = skill_channel.send(
+            channel=ch_name,
+            message=call.get("message", ""),
+            recipient=call.get("recipient", ""),
+            channel_cfg=ch_cfg,
         )
 
     else:

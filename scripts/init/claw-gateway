@@ -1,0 +1,29 @@
+#!/sbin/openrc-run
+# OpenRC service file for claw-linux — claw-gateway
+# Alpine Linux uses OpenRC instead of systemd.
+#
+# Install:
+#   cp scripts/init/claw-gateway /etc/init.d/claw-gateway
+#   chmod +x /etc/init.d/claw-gateway
+#   rc-update add claw-gateway default
+#   rc-service claw-gateway start
+
+name="claw-gateway"
+description="claw-linux native HTTP control-plane gateway"
+command="/usr/local/bin/claw-gateway"
+command_args="-p ${CLAW_GATEWAY_PORT:-18789} -b ${CLAW_GATEWAY_BIND:-127.0.0.1}"
+command_user="claw:claw"
+command_background="yes"
+pidfile="/run/claw-gateway.pid"
+output_log="/var/log/claw/gateway.log"
+error_log="/var/log/claw/gateway.log"
+
+depend() {
+    need net
+    after logger
+}
+
+start_pre() {
+    checkpath --directory --owner claw:claw --mode 0750 /var/lib/claw
+    checkpath --directory --owner claw:claw --mode 0750 /var/log/claw
+}

@@ -24,7 +24,72 @@ services:
     networks:
       - claw-net
 
-  # ── Agent REST API (optional — set CLAW_MODE=api to enable) ──────────────
+  # ── Native HTTP gateway (control plane) ───────────────────────────────────
+  gateway:
+    build:
+      context: .
+      target: runtime
+    image: claw-linux:latest
+    container_name: claw-gateway
+    restart: unless-stopped
+    environment:
+      CLAW_MODE: gateway
+      CLAW_GATEWAY_PORT: "18789"
+      CLAW_GATEWAY_BIND: "0.0.0.0"
+    ports:
+      - "127.0.0.1:18789:18789"
+    volumes:
+      - claw-ipc:/var/lib/claw
+    networks:
+      - claw-net
+    profiles:
+      - gateway
+
+  # ── Channel webhook adapter ───────────────────────────────────────────────
+  channel:
+    build:
+      context: .
+      target: runtime
+    image: claw-linux:latest
+    container_name: claw-channel
+    restart: unless-stopped
+    environment:
+      CLAW_MODE: channel
+      CLAW_CHANNEL_PORT: "18790"
+      CLAW_CHANNEL_BIND: "0.0.0.0"
+      CLAW_GATEWAY_URL: "http://gateway:18789/api/event"
+      CLAW_CHANNEL_SECRET: ""        # set to a shared secret in production
+      CLAW_TELEGRAM_TOKEN: ""        # set your Telegram bot token
+    ports:
+      - "127.0.0.1:18790:18790"
+    networks:
+      - claw-net
+    depends_on:
+      - gateway
+    profiles:
+      - gateway
+
+  # ── Cron automation scheduler ─────────────────────────────────────────────
+  cron:
+    build:
+      context: .
+      target: runtime
+    image: claw-linux:latest
+    container_name: claw-cron
+    restart: unless-stopped
+    environment:
+      CLAW_MODE: cron
+      CLAW_CRONTAB: /opt/claw/config/crontab
+      CLAW_CRON_LOG: "-"
+    volumes:
+      - claw-memory:/var/lib/claw/memory
+      - claw-workspace:/workspace
+    networks:
+      - claw-net
+    profiles:
+      - automation
+
+  # ── Agent REST API (optional) ─────────────────────────────────────────────
   agent-api:
     build:
       context: .
@@ -50,7 +115,7 @@ services:
     networks:
       - claw-net
     profiles:
-      - api   # only started with: docker compose --profile api up
+      - api
 
   # ── Ollama local LLM server ───────────────────────────────────────────────
   ollama:
@@ -71,6 +136,7 @@ services:
 volumes:
   claw-memory:
   claw-workspace:
+  claw-ipc:
   ollama-models:
 
 networks:

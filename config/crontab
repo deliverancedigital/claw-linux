@@ -1,0 +1,19 @@
+# claw-linux crontab — managed by claw-cron
+# Format: MIN HOUR MDAY MON WDAY COMMAND
+# Specials: @reboot @daily @hourly @weekly @monthly
+# Step syntax: */N means "every N units" (e.g. */5 in MIN = every 5 minutes)
+#
+# Edit this file to add automated tasks.
+# Send SIGHUP to claw-cron to reload without restarting.
+
+# ── Health checks ─────────────────────────────────────────────────────────────
+# Log a heartbeat every 5 minutes (note: */5 step syntax is supported)
+# */5 * * * * echo "{\"command\":\"echo claw-cron heartbeat\",\"timeout\":5}" | /usr/local/bin/claw-shell >> /var/lib/claw/cron.log 2>&1
+
+# ── Memory maintenance ────────────────────────────────────────────────────────
+# Summarise and compact memory daily at 02:00
+# 0 2 * * * python3 /opt/claw/agent/main.py "Summarise today's memory into key facts and forget verbose conversation history"
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+# Tasks to run once when the system boots
+# @reboot python3 /opt/claw/agent/main.py "System started. Run self-check and report status."

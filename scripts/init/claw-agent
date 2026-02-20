@@ -1,0 +1,36 @@
+#!/sbin/openrc-run
+# OpenRC service file for claw-linux — claw-agent (Python agent)
+# Alpine Linux uses OpenRC instead of systemd.
+#
+# Install:
+#   cp scripts/init/claw-agent /etc/init.d/claw-agent
+#   chmod +x /etc/init.d/claw-agent
+#   rc-update add claw-agent default
+#   rc-service claw-agent start
+
+name="claw-agent"
+description="claw-linux autonomous AI agent"
+command="/usr/bin/python3"
+command_args="/opt/claw/agent/main.py"
+command_user="claw:claw"
+command_background="yes"
+pidfile="/run/claw-agent.pid"
+output_log="/var/log/claw/agent.log"
+error_log="/var/log/claw/agent.log"
+
+export PYTHONPATH="/opt/claw/agent"
+export OPENCLAW_MODEL_PROVIDER="${OPENCLAW_MODEL_PROVIDER:-ollama}"
+export OPENCLAW_MODEL_NAME="${OPENCLAW_MODEL_NAME:-llama3.2}"
+export OPENCLAW_AGENT_NAME="${OPENCLAW_AGENT_NAME:-Claw}"
+export OPENCLAW_LOG_LEVEL="${OPENCLAW_LOG_LEVEL:-INFO}"
+
+depend() {
+    need net localmount
+    after claw-gateway claw-cron
+}
+
+start_pre() {
+    checkpath --directory --owner claw:claw --mode 0750 /var/lib/claw/memory
+    checkpath --directory --owner claw:claw --mode 0750 /var/log/claw
+    checkpath --directory --owner claw:claw --mode 0750 /workspace
+}

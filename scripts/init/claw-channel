@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+# OpenRC service file for claw-linux — claw-channel
+# Alpine Linux uses OpenRC instead of systemd.
+#
+# Install:
+#   cp scripts/init/claw-channel /etc/init.d/claw-channel
+#   chmod +x /etc/init.d/claw-channel
+#   rc-update add claw-channel default
+#   rc-service claw-channel start
+
+name="claw-channel"
+description="claw-linux native webhook channel adapter"
+command="/usr/local/bin/claw-channel"
+command_args="-p ${CLAW_CHANNEL_PORT:-18790} -b ${CLAW_CHANNEL_BIND:-127.0.0.1}"
+command_user="claw:claw"
+command_background="yes"
+pidfile="/run/claw-channel.pid"
+output_log="/var/log/claw/channel.log"
+error_log="/var/log/claw/channel.log"
+
+depend() {
+    need net claw-gateway
+}
+
+start_pre() {
+    checkpath --directory --owner claw:claw --mode 0750 /var/log/claw
+}
