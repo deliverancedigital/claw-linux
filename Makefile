@@ -98,6 +98,33 @@ test: binaries
 	@src/bin/claw-daemon status 2>&1 || true
 	@echo "=== claw-tui: --help ==="
 	@src/bin/claw-tui -h 2>&1 || true
+	@echo "=== claw-log: --help ==="
+	@src/bin/claw-log -h 2>&1 || true
+	@echo "=== claw-mem: set/get ==="
+	@echo '{"op":"set","key":"test_key","value":"test_value"}' | CLAW_MEMORY_FILE=/tmp/claw-mem-test.json src/bin/claw-mem
+	@echo '{"op":"get","key":"test_key"}' | CLAW_MEMORY_FILE=/tmp/claw-mem-test.json src/bin/claw-mem
+	@echo '{"op":"del","key":"test_key"}' | CLAW_MEMORY_FILE=/tmp/claw-mem-test.json src/bin/claw-mem
+	@rm -f /tmp/claw-mem-test.json
+	@echo "=== claw-plugin: list ==="
+	@src/bin/claw-plugin list 2>&1 || true
+	@echo "=== claw-term: --help ==="
+	@src/bin/claw-term -h 2>&1 || true
+	@echo "=== claw-md: render ==="
+	@printf '# Hello\n**Bold** and *italic*\n' | src/bin/claw-md
+	@echo "=== claw-link: --help ==="
+	@src/bin/claw-link -h 2>&1 || true
+	@echo "=== claw-tts: --help ==="
+	@src/bin/claw-tts -h 2>&1 || true
+	@echo "=== claw-browser: --help ==="
+	@src/bin/claw-browser -h 2>&1 || true
+	@echo "=== claw-media: --help ==="
+	@src/bin/claw-media -h 2>&1 || true
+	@echo "=== claw-canvas: --help ==="
+	@src/bin/claw-canvas -h 2>&1 || true
+	@echo "=== claw-mu: --help ==="
+	@src/bin/claw-mu -h 2>&1 || true
+	@echo "=== claw-pair: --help ==="
+	@src/bin/claw-pair -h 2>&1 || true
 	@echo "=== All smoke tests passed ==="
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────

@@ -6,14 +6,27 @@
 
 | Component | Binary | Description |
 |---|---|---|
-| **Gateway** | `claw-gateway` | Native HTTP control plane (port 18789, matching openclaw default) — replaces the Node.js OpenClaw Gateway |
-| **Channel adapter** | `claw-channel` | Webhook receiver for Telegram, Discord, Slack, and generic webhooks (port 18790) |
+| **Gateway** | `claw-gateway` | Native HTTP control plane (port 18789); message, event, hook, and session endpoints |
+| **Channel adapter** | `claw-channel` | Webhook receiver for Telegram, Discord, Slack, LINE, WhatsApp, and generic webhooks (port 18790) |
 | **Shell skill** | `claw-shell` | Sandboxed shell command execution with blocked-command policy |
 | **Filesystem skill** | `claw-fs` | Allowlisted file read/write/list with path safety |
 | **Web fetch skill** | `claw-fetch` | libcurl-backed HTTPS fetch with TLS verification |
 | **Cron scheduler** | `claw-cron` | Native cron daemon for automation tasks |
 | **Service manager** | `claw-daemon` | Start/stop/restart/status for all claw services using PID files |
 | **Terminal UI** | `claw-tui` | Interactive readline-style chat interface connecting to the local gateway |
+| **Log viewer** | `claw-log` | Centralised log viewer/streamer with per-service colour coding and follow mode |
+| **Memory store** | `claw-mem` | Persistent key-value memory store (JSON skill protocol) |
+| **Plugin loader** | `claw-plugin` | Plugin registry; discover, install, and run plugins from `/opt/claw/plugins/` |
+| **Terminal emulator** | `claw-term` | PTY-backed terminal emulator with interactive bridge and capture modes |
+| **Markdown renderer** | `claw-md` | Markdown → ANSI terminal renderer |
+| **Link preview** | `claw-link` | Link metadata extractor (title, description, og:image) via libcurl |
+| **Text-to-speech** | `claw-tts` | Speech synthesis via espeak-ng; JSON skill + CLI |
+| **Browser** | `claw-browser` | Browser launcher (xdg-open on XFCE; w3m/lynx headless fallback) |
+| **Media** | `claw-media` | Media playback via mpv; metadata via ffprobe; XFCE GUI or headless audio |
+| **Canvas host** | `claw-canvas` | Visual canvas for XFCE desktop; renders HTML/SVG/text in the browser |
+| **Media understanding** | `claw-mu` | Image/media analysis via Ollama vision (llava) or OpenAI GPT-4o |
+| **Device pairing** | `claw-pair` | Challenge-response device pairing with per-device token registry |
+| **Setup wizard** | `claw-wizard.sh` | Interactive setup wizard for LLM provider, API keys, and channels |
 | **Python agent** | `agent/main.py` | ReAct-loop agent with Ollama/OpenAI/Anthropic backends |
 
 ## Features
@@ -21,13 +34,16 @@
 - **Minimal footprint** — Built on Alpine Linux for a lean, fast, secure base.
 - **No Node.js required** — All OpenClaw components re-implemented in native C.
 - **Native kernel access** — C binaries run with full OS-level capabilities.
-- **Channels** — Telegram, Discord, Slack, generic webhooks (inbound + outbound).
+- **Channels** — Telegram, Discord, Slack, LINE, WhatsApp, generic webhooks (inbound + outbound).
 - **Automation** — Native cron scheduler (`claw-cron`) + Python automation API.
-- **Persistent memory** — Agent remembers context across sessions.
+- **Persistent memory** — Agent remembers context across sessions via `claw-mem`.
+- **Plugin system** — Extend the agent with plugins via `claw-plugin`.
 - **Model agnostic** — Ollama, OpenAI, or Anthropic Claude.
 - **Private by default** — No data leaves your machine unless you allow it.
 - **Docker & bare metal** — Run as a container or build an ISO for dedicated hardware.
-- **XFCE desktop** — Full graphical desktop environment for bare metal installs with XFCE + LightDM auto-login.
+- **XFCE desktop** — Full graphical desktop environment for bare metal installs; canvas, browser, media, TTS all work on XFCE.
+- **Hook system** — Register HTTP webhooks for any event via the gateway.
+- **Device pairing** — Securely pair remote devices with `claw-pair`.
 
 ## Quick Start (Docker)
 
