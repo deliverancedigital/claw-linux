@@ -36,7 +36,8 @@ WORKDIR /build
 COPY src/ src/
 
 # Compile all binaries (gateway, channel, cron don't need libcurl except channel)
-RUN cd src && make CC=cc CFLAGS="-O2 -Wall -Wextra -static-libgcc"
+WORKDIR /build/src
+RUN make CC=cc CFLAGS="-O2 -Wall -Wextra -static-libgcc"
 
 # ============================================================================
 # Stage 2 — Runtime OS image (Docker / container deployments)
@@ -50,9 +51,11 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 # Read the package list and install all uncommented, non-blank lines
 COPY config/packages.txt /tmp/packages.txt
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 RUN grep -v '^\s*#' /tmp/packages.txt | grep -v '^\s*$' | \
     xargs apk add --no-cache && \
     rm /tmp/packages.txt
+SHELL ["/bin/sh", "-c"]
 
 # Create non-root agent user
 RUN addgroup -S claw && adduser -S -G claw -h /home/claw claw
