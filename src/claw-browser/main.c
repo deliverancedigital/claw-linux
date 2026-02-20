@@ -145,8 +145,12 @@ static int dump_via_fetch(const char *url)
     const char *fetch = "/usr/local/bin/claw-fetch";
     if (access(fetch, X_OK) != 0) fetch = "claw-fetch";
 
-    char input[MAX_URL_BYTES + 32];
-    snprintf(input, sizeof(input), "{\"url\":\"%s\"}", url);
+    /* JSON-escape the URL before embedding it in the JSON payload */
+    char esc_url[MAX_URL_BYTES * 2] = {0};
+    json_escape(url, esc_url, sizeof(esc_url));
+
+    char input[sizeof(esc_url) + 16];
+    snprintf(input, sizeof(input), "{\"url\":\"%s\"}", esc_url);
 
     /* Write to temp file, then exec claw-fetch */
     char tmp[] = "/tmp/claw-browser-XXXXXX";
@@ -194,29 +198,42 @@ static int skill_mode(void)
     dump = json_get_long(input, "dump", 0);
 
     if (dump) {
-        /* Dump mode: use text browser or claw-fetch */
+        /* Dump mode: use text browser in non-interactive dump mode.
+         * Stdout is reserved for page content. Do not print JSON status
+         * lines here to avoid mixing them with the dump output. */
         const char *br = select_browser("w3m");  /* prefer w3m for dump */
         if (!br) br = select_browser(NULL);
         if (br && strcmp(br, "xdg-open") != 0) {
-            int rc = open_url(br, url, 1);
-            if (rc == 0) {
-                char esc_url[MAX_URL_BYTES*2] = {0};
-                char esc_br[MAX_BROWSER_BYTES*2] = {0};
-                json_escape(url, esc_url, sizeof(esc_url));
-                json_escape(br,  esc_br,  sizeof(esc_br));
-                printf("{\"ok\":true,\"url\":\"%s\",\"browser\":\"%s\"}\n",
-                       esc_url, esc_br);
-                return 0;
+            /* Build -dump argv for each known text browser */
+            pid_t pid = fork();
+            if (pid < 0) {
+                fprintf(stderr, "claw-browser: fork failed: %s\n", strerror(errno));
+                return 1;
             }
+            if (pid == 0) {
+                if (strcmp(br, "w3m") == 0) {
+                    const char *av[] = { "w3m", "-dump", url, NULL };
+                    execvp("w3m", (char *const *)av);
+                } else if (strcmp(br, "lynx") == 0) {
+                    const char *av[] = { "lynx", "-dump", url, NULL };
+                    execvp("lynx", (char *const *)av);
+                } else if (strcmp(br, "elinks") == 0) {
+                    const char *av[] = { "elinks", "-dump", url, NULL };
+                    execvp("elinks", (char *const *)av);
+                } else {
+                    const char *av[] = { br, url, NULL };
+                    execvp(br, (char *const *)av);
+                }
+                _exit(127);
+            }
+            int st = 0;
+            waitpid(pid, &st, 0);
+            return WIFEXITED(st) ? WEXITSTATUS(st) : 1;
         }
+        /* Fallback: claw-fetch (raw HTTP) */
         int rc = dump_via_fetch(url);
-        if (rc == 0) {
-            char esc_url[MAX_URL_BYTES*2] = {0};
-            json_escape(url, esc_url, sizeof(esc_url));
-            printf("{\"ok\":true,\"url\":\"%s\",\"browser\":\"claw-fetch\"}\n", esc_url);
-        } else {
-            puts("{\"ok\":false,\"error\":\"No browser or claw-fetch available\"}");
-        }
+        if (rc != 0)
+            fprintf(stderr, "claw-browser: no suitable text browser or claw-fetch available\n");
         return rc;
     }
 

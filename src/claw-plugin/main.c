@@ -308,15 +308,25 @@ static void cmd_install(const char *src_path)
 
     char buf[65536];
     ssize_t nr;
+    int copy_err = 0;
     while ((nr = read(src_fd, buf, sizeof(buf))) > 0) {
         ssize_t nw = write(dst_fd, buf, (size_t)nr);
         if (nw != nr) {
             fprintf(stderr, "claw-plugin: write error: %s\n", strerror(errno));
-            close(src_fd); close(dst_fd); exit(1);
+            close(src_fd); close(dst_fd);
+            unlink(dst);
+            exit(1);
         }
+    }
+    if (nr < 0) {
+        fprintf(stderr, "claw-plugin: read error: %s\n", strerror(errno));
+        close(src_fd); close(dst_fd);
+        unlink(dst);
+        copy_err = 1;
     }
     close(src_fd);
     close(dst_fd);
+    if (copy_err) exit(1);
 
     /* Also install .json sidecar if present alongside source */
     char src_meta[MAX_PATH_LEN], dst_meta[MAX_PATH_LEN];

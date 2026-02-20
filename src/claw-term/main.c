@@ -59,9 +59,8 @@ static int           g_raw_mode  = 0;
 static void on_sigchld(int s)
 {
     (void)s;
-    int status;
-    if (waitpid(g_child_pid, &status, WNOHANG) > 0)
-        g_child_done = 1;
+    /* Just mark that the child has changed state; main will reap it. */
+    g_child_done = 1;
 }
 
 static void on_sigterm(int s) { (void)s; g_child_done = 1; }

@@ -45,6 +45,7 @@
 #include <signal.h>
 #include <time.h>
 #include <dirent.h>
+#include <sys/file.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -109,15 +110,24 @@ static int write_hooks(const char *content)
 {
     char tmp[512];
     snprintf(tmp, sizeof(tmp), "%s.tmp", HOOKS_FILE);
+
+    /* Lock the stable target file for the duration of read-modify-write */
+    mkdir("/var/lib/claw", 0750);
+    int lock_fd = open(HOOKS_FILE, O_RDWR | O_CREAT, 0640);
+    if (lock_fd < 0) return -1;
+    if (flock(lock_fd, LOCK_EX) != 0) { close(lock_fd); return -1; }
+
     FILE *fp = fopen(tmp, "w");
     if (!fp) {
-        mkdir("/var/lib/claw", 0750);
-        fp = fopen(tmp, "w");
-        if (!fp) return -1;
+        flock(lock_fd, LOCK_UN); close(lock_fd); return -1;
     }
     fputs(content, fp); fputc('\n', fp);
     fclose(fp);
-    return rename(tmp, HOOKS_FILE);
+    int rc = rename(tmp, HOOKS_FILE);
+
+    flock(lock_fd, LOCK_UN);
+    close(lock_fd);
+    return rc;
 }
 
 /*
@@ -179,6 +189,27 @@ static void ensure_sessions_dir(void)
 }
 
 /*
+ * Sanitize a session ID to [A-Za-z0-9_-] so it is safe to embed in a
+ * filename. Returns the number of characters written (0 = empty/rejected).
+ */
+static size_t sanitize_session_id(const char *in, char *out, size_t outsz)
+{
+    size_t j = 0;
+    if (!in || !out || outsz == 0) return 0;
+    for (size_t i = 0; in[i] != '\0' && j + 1 < outsz; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if ((c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') ||
+            c == '_' || c == '-') {
+            out[j++] = (char)c;
+        }
+    }
+    out[j] = '\0';
+    return j;
+}
+
+/*
  * Write/update a session file when a message is processed.
  */
 static void session_update(const char *session_id, const char *message,
@@ -187,8 +218,11 @@ static void session_update(const char *session_id, const char *message,
     if (!session_id || !session_id[0]) return;
     ensure_sessions_dir();
 
+    char safe_id[MAX_SESSION_ID_LEN + 1] = {0};
+    if (sanitize_session_id(session_id, safe_id, sizeof(safe_id)) == 0) return;
+
     char path[768];
-    snprintf(path, sizeof(path), "%s/%s.json", SESSIONS_DIR, session_id);
+    snprintf(path, sizeof(path), "%s/%s.json", SESSIONS_DIR, safe_id);
 
     /* Read existing file or create empty */
     FILE *rfp = fopen(path, "r");

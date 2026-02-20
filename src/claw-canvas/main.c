@@ -47,6 +47,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -216,7 +217,9 @@ static int op_show(const char *content, const char *file_arg,
     }
 
     if (print_only) {
-        printf("{\"ok\":true,\"op\":\"show\",\"file\":\"%s\",\"pid\":0}\n", canvas_path);
+        char esc_path[MAX_PATH_BYTES * 2] = {0};
+        json_escape(canvas_path, esc_path, sizeof(esc_path));
+        printf("{\"ok\":true,\"op\":\"show\",\"file\":\"%s\",\"pid\":0}\n", esc_path);
         free(canvas_path);
         return 0;
     }

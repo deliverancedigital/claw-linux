@@ -81,11 +81,23 @@ static void random_bytes(unsigned char *buf, size_t n)
         size_t got = 0;
         while (got < n) {
             ssize_t r = read(fd, buf + got, n - got);
-            if (r > 0) got += (size_t)r;
+            if (r > 0) {
+                got += (size_t)r;
+            } else if (r == 0) {
+                /* EOF from /dev/urandom — shouldn't happen, but stop */
+                break;
+            } else {
+                if (errno == EINTR) continue; /* interrupted, retry */
+                break;                        /* other error, stop */
+            }
         }
         close(fd);
+        if (got >= n) return;
+        /* Fall through to weaker fallback for any remaining bytes */
+        srand((unsigned)time(NULL) ^ (unsigned)getpid());
+        for (size_t i = got; i < n; i++) buf[i] = (unsigned char)(rand() & 0xFF);
     } else {
-        /* Fallback (weaker) */
+        /* /dev/urandom unavailable — weaker fallback */
         srand((unsigned)time(NULL) ^ (unsigned)getpid());
         for (size_t i = 0; i < n; i++) buf[i] = (unsigned char)(rand() & 0xFF);
     }

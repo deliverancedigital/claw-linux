@@ -101,9 +101,10 @@ test: binaries
 	@echo "=== claw-log: --help ==="
 	@src/bin/claw-log -h 2>&1 || true
 	@echo "=== claw-mem: set/get ==="
-	@echo '{"op":"set","key":"test_key","value":"test_value"}' | src/bin/claw-mem
-	@echo '{"op":"get","key":"test_key"}' | src/bin/claw-mem
-	@echo '{"op":"del","key":"test_key"}' | src/bin/claw-mem
+	@echo '{"op":"set","key":"test_key","value":"test_value"}' | CLAW_MEMORY_FILE=/tmp/claw-mem-test.json src/bin/claw-mem
+	@echo '{"op":"get","key":"test_key"}' | CLAW_MEMORY_FILE=/tmp/claw-mem-test.json src/bin/claw-mem
+	@echo '{"op":"del","key":"test_key"}' | CLAW_MEMORY_FILE=/tmp/claw-mem-test.json src/bin/claw-mem
+	@rm -f /tmp/claw-mem-test.json
 	@echo "=== claw-plugin: list ==="
 	@src/bin/claw-plugin list 2>&1 || true
 	@echo "=== claw-term: --help ==="

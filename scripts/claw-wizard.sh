@@ -86,7 +86,16 @@ OVERRIDES_FILE="$(mktemp /tmp/claw-wizard-XXXXXX.env)"
 trap 'rm -f "$OVERRIDES_FILE"' EXIT
 
 add_override() {
-    printf "%s=%s\n" "$1" "$2" >> "$OVERRIDES_FILE"
+    local key="$1" value="$2"
+    # Reject newlines to prevent multi-line injection in the env file
+    case "$value" in
+        *'
+'*) error "Value for $key contains a newline, which is not allowed." ;;
+    esac
+    # POSIX single-quote escaping: replace ' with '\''
+    local escaped
+    escaped=$(printf '%s' "$value" | sed "s/'/'\\\\''/g")
+    printf "%s='%s'\n" "$key" "$escaped" >> "$OVERRIDES_FILE"
 }
 
 # ── Step 1: LLM provider ───────────────────────────────────────────────────

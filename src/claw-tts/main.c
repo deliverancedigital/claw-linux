@@ -124,8 +124,16 @@ static int run_espeak(const char *text, const char *voice, int speed, int pitch,
     }
 
     int status = 0;
-    waitpid(pid, &status, 0);
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    for (;;) {
+        pid_t w = waitpid(pid, &status, 0);
+        if (w < 0) {
+            if (errno == EINTR) continue; /* retry on signal interrupt */
+            return -1;                    /* waitpid error */
+        }
+        break;
+    }
+    if (WIFEXITED(status))   return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
     return 1;
 }
 

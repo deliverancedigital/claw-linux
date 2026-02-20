@@ -122,31 +122,38 @@ static void ensure_dir(const char *path)
 }
 
 /*
- * Write content atomically: write to a .tmp file then rename.
+ * Write content atomically: lock the target file, write to a .tmp file then
+ * rename. Locking on the stable target prevents concurrent write races.
  */
 static int write_memory_file(const char *path, const char *content)
 {
     char tmp_path[512];
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
 
+    /* Open/create the target as a stable lock anchor */
+    int lock_fd = open(path, O_RDWR | O_CREAT, 0644);
+    if (lock_fd < 0) {
+        ensure_dir(path);
+        lock_fd = open(path, O_RDWR | O_CREAT, 0644);
+        if (lock_fd < 0) return -1;
+    }
+    if (flock(lock_fd, LOCK_EX) != 0) { close(lock_fd); return -1; }
+
     FILE *fp = fopen(tmp_path, "w");
     if (!fp) {
-        ensure_dir(path);
-        fp = fopen(tmp_path, "w");
-        if (!fp) return -1;
+        flock(lock_fd, LOCK_UN); close(lock_fd); return -1;
     }
-
-    /* Lock while writing */
-    int fd = fileno(fp);
-    flock(fd, LOCK_EX);
-
     fputs(content, fp);
     fputc('\n', fp);
     fflush(fp);
-    flock(fd, LOCK_UN);
+    int tmp_fd = fileno(fp);
+    if (tmp_fd >= 0) fsync(tmp_fd);
     fclose(fp);
 
-    return rename(tmp_path, path);
+    int rc = rename(tmp_path, path);
+    flock(lock_fd, LOCK_UN);
+    close(lock_fd);
+    return rc;
 }
 
 /*
@@ -298,28 +305,28 @@ static char *json_obj_del(const char *obj, const char *key)
 
 /* ---- operations ---------------------------------------------------------- */
 
-static void op_set(const char *json_in)
+static int op_set(const char *json_in)
 {
     char key[MAX_KEY_BYTES]   = {0};
     char value[MAX_VALUE_BYTES] = {0};
 
     if (!json_get_string(json_in, "key", key, sizeof(key)) || key[0] == '\0') {
         puts("{\"ok\":false,\"error\":\"Missing or empty 'key' field\"}");
-        return;
+        return 1;
     }
     if (!json_get_string(json_in, "value", value, sizeof(value))) {
         puts("{\"ok\":false,\"error\":\"Missing 'value' field\"}");
-        return;
+        return 1;
     }
 
     const char *path = memory_file();
     char *mem = read_memory_file(path, NULL);
-    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return; }
+    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return 1; }
 
     /* JSON-escape the value for storage */
     size_t esc_cap = strlen(value) * 2 + 4;
     char *esc_val  = malloc(esc_cap);
-    if (!esc_val) { free(mem); puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return; }
+    if (!esc_val) { free(mem); puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return 1; }
     esc_val[0] = '"';
     json_escape(value, esc_val + 1, esc_cap - 2);
     size_t esc_len = strlen(esc_val);
@@ -330,26 +337,29 @@ static void op_set(const char *json_in)
     free(esc_val);
     free(mem);
 
-    if (!updated) { puts("{\"ok\":false,\"error\":\"Internal error\"}"); return; }
+    if (!updated) { puts("{\"ok\":false,\"error\":\"Internal error\"}"); return 1; }
 
-    if (write_memory_file(path, updated) < 0)
+    int rc = 0;
+    if (write_memory_file(path, updated) < 0) {
         puts("{\"ok\":false,\"error\":\"Failed to write memory file\"}");
-    else
+        rc = 1;
+    } else {
         puts("{\"ok\":true}");
-
+    }
     free(updated);
+    return rc;
 }
 
-static void op_get(const char *json_in)
+static int op_get(const char *json_in)
 {
     char key[MAX_KEY_BYTES] = {0};
     if (!json_get_string(json_in, "key", key, sizeof(key)) || key[0] == '\0') {
         puts("{\"ok\":false,\"error\":\"Missing or empty 'key' field\"}");
-        return;
+        return 1;
     }
 
     char *mem = read_memory_file(memory_file(), NULL);
-    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return; }
+    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return 1; }
 
     char value[MAX_VALUE_BYTES] = {0};
     if (!json_get_string(mem, key, value, sizeof(value))) {
@@ -357,7 +367,7 @@ static void op_get(const char *json_in)
         char esc_key[MAX_KEY_BYTES * 2 + 4] = {0};
         json_escape(key, esc_key, sizeof(esc_key));
         printf("{\"ok\":false,\"error\":\"Key not found\",\"key\":\"%s\"}\n", esc_key);
-        return;
+        return 1;
     }
     free(mem);
 
@@ -366,36 +376,40 @@ static void op_get(const char *json_in)
     json_escape(key,   esc_key, sizeof(esc_key));
     json_escape(value, esc_val, sizeof(esc_val));
     printf("{\"ok\":true,\"key\":\"%s\",\"value\":\"%s\"}\n", esc_key, esc_val);
+    return 0;
 }
 
-static void op_del(const char *json_in)
+static int op_del(const char *json_in)
 {
     char key[MAX_KEY_BYTES] = {0};
     if (!json_get_string(json_in, "key", key, sizeof(key)) || key[0] == '\0') {
         puts("{\"ok\":false,\"error\":\"Missing or empty 'key' field\"}");
-        return;
+        return 1;
     }
 
     const char *path = memory_file();
     char *mem = read_memory_file(path, NULL);
-    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return; }
+    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return 1; }
 
     char *updated = json_obj_del(mem, key);
     free(mem);
-    if (!updated) { puts("{\"ok\":false,\"error\":\"Internal error\"}"); return; }
+    if (!updated) { puts("{\"ok\":false,\"error\":\"Internal error\"}"); return 1; }
 
-    if (write_memory_file(path, updated) < 0)
+    int rc = 0;
+    if (write_memory_file(path, updated) < 0) {
         puts("{\"ok\":false,\"error\":\"Failed to write memory file\"}");
-    else
+        rc = 1;
+    } else {
         puts("{\"ok\":true}");
-
+    }
     free(updated);
+    return rc;
 }
 
-static void op_list(void)
+static int op_list(void)
 {
     char *mem = read_memory_file(memory_file(), NULL);
-    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return; }
+    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return 1; }
 
     /* Collect all keys from the JSON object */
     char keys_buf[65536] = {0};
@@ -434,18 +448,19 @@ static void op_list(void)
     free(mem);
 
     printf("{\"ok\":true,\"count\":%d,\"keys\":[%s]}\n", count, keys_buf);
+    return 0;
 }
 
-static void op_search(const char *json_in)
+static int op_search(const char *json_in)
 {
     char query[MAX_VALUE_BYTES] = {0};
     if (!json_get_string(json_in, "query", query, sizeof(query)) || query[0] == '\0') {
         puts("{\"ok\":false,\"error\":\"Missing or empty 'query' field\"}");
-        return;
+        return 1;
     }
 
     char *mem = read_memory_file(memory_file(), NULL);
-    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return; }
+    if (!mem) { puts("{\"ok\":false,\"error\":\"Out of memory\"}"); return 1; }
 
     char results[131072] = {0};
     size_t res_len = 0;
@@ -488,6 +503,7 @@ static void op_search(const char *json_in)
     free(mem);
 
     printf("{\"ok\":true,\"count\":%d,\"results\":[%s]}\n", count, results);
+    return 0;
 }
 
 /* ---- main ---------------------------------------------------------------- */
@@ -506,11 +522,11 @@ int main(void)
         return 1;
     }
 
-    if      (strcmp(op, "set")    == 0) op_set(input);
-    else if (strcmp(op, "get")    == 0) op_get(input);
-    else if (strcmp(op, "del")    == 0) op_del(input);
-    else if (strcmp(op, "list")   == 0) op_list();
-    else if (strcmp(op, "search") == 0) op_search(input);
+    if      (strcmp(op, "set")    == 0) return op_set(input);
+    else if (strcmp(op, "get")    == 0) return op_get(input);
+    else if (strcmp(op, "del")    == 0) return op_del(input);
+    else if (strcmp(op, "list")   == 0) return op_list();
+    else if (strcmp(op, "search") == 0) return op_search(input);
     else {
         char esc[128] = {0};
         json_escape(op, esc, sizeof(esc));

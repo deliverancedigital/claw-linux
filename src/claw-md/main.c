@@ -22,9 +22,8 @@
  *
  * Usage
  * -----
- *   claw-md [FILE]          — render FILE (or stdin if omitted)
- *   claw-md -w WIDTH [FILE] — wrap at WIDTH columns (default: 80)
- *   claw-md -h              — show this help
+ *   claw-md [FILE]   — render FILE (or stdin if omitted)
+ *   claw-md -h       — show this help
  *
  * Build:
  *   cc -O2 -Wall -Wextra -o claw-md main.c
