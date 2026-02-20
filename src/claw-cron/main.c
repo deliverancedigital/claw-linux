@@ -18,7 +18,7 @@
  *
  * Example /opt/claw/config/crontab:
  *   # Run agent health check every 5 minutes
- *   */5 * * * * /usr/local/bin/claw-shell '{"command":"echo ping","timeout":5}'
+ *   * /5 * * * * /usr/local/bin/claw-shell '{"command":"echo ping","timeout":5}'
  *
  *   # Daily memory summarisation at 02:00
  *   0 2 * * * python3 /opt/claw/agent/main.py "summarise memory"
@@ -113,8 +113,8 @@ static void reap(int sig)
 static int parse_field(const char *s, int min_val, int max_val)
 {
     if (strcmp(s, "*") == 0) return -1; /* wildcard */
-    /* Handle step syntax: */5 → every 5 units (simplified: use -1) */
-    if (s[0] == '*' && s[1] == '/') return -1; /* treat step as wildcard */
+    /* Step syntax (asterisk + slash + N, e.g. every-5): treat as wildcard (simplified). */
+    if (s[0] == '*' && s[1] == '/') return -1;
     char *end;
     long v = strtol(s, &end, 10);
     if (*end != '\0') return -2;
@@ -200,7 +200,8 @@ static int parse_line(const char *line, CronJob *job)
         job->mon < -1  || job->wday < -1)
         return 0;
 
-    strncpy(job->command, command, MAX_CMD_LEN - 1);
+    memcpy(job->command, command, MAX_CMD_LEN - 1);
+    job->command[MAX_CMD_LEN - 1] = '\0';
     return 1;
 }
 

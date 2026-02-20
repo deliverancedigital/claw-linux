@@ -1,0 +1,29 @@
+#!/sbin/openrc-run
+# OpenRC service file for claw-linux — claw-cron
+# Alpine Linux uses OpenRC instead of systemd.
+#
+# Install:
+#   cp scripts/init/claw-cron /etc/init.d/claw-cron
+#   chmod +x /etc/init.d/claw-cron
+#   rc-update add claw-cron default
+#   rc-service claw-cron start
+
+name="claw-cron"
+description="claw-linux native cron automation scheduler"
+command="/usr/local/bin/claw-cron"
+command_args="-f ${CLAW_CRONTAB:-/opt/claw/config/crontab} -l ${CLAW_CRON_LOG:-/var/lib/claw/cron.log}"
+command_user="claw:claw"
+command_background="yes"
+pidfile="/run/claw-cron.pid"
+output_log="/var/log/claw/cron.log"
+error_log="/var/log/claw/cron.log"
+
+depend() {
+    need localmount
+    after claw-gateway
+}
+
+start_pre() {
+    checkpath --directory --owner claw:claw --mode 0750 /var/lib/claw
+    checkpath --directory --owner claw:claw --mode 0750 /var/log/claw
+}

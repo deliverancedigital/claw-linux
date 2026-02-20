@@ -100,8 +100,12 @@ static void http_respond(int fd, int status, const char *body)
         status == 200 ? "OK" : status == 400 ? "Bad Request" :
         status == 401 ? "Unauthorized" : "Internal Server Error",
         strlen(body));
-    if (hlen > 0) write(fd, hdr, (size_t)hlen);
-    write(fd, body, strlen(body));
+    if (hlen > 0) {
+        ssize_t r = write(fd, hdr, (size_t)hlen);
+        (void)r;
+    }
+    ssize_t r = write(fd, body, strlen(body));
+    (void)r;
 }
 
 static ssize_t read_request(int fd, char *buf, size_t bufsz)
@@ -149,7 +153,8 @@ static int get_method(const char *req, char *out, size_t sz)
 static int get_path(const char *req, char *out, size_t sz)
 {
     const char *sp1 = strchr(req, ' ');
-    if (!sp1) return 0; sp1++;
+    if (!sp1) return 0;
+    sp1++;
     const char *sp2 = strchr(sp1, ' ');
     if (!sp2) return 0;
     size_t len = (size_t)(sp2 - sp1);
@@ -166,8 +171,9 @@ static int get_path(const char *req, char *out, size_t sz)
 static int get_header(const char *req, const char *hdr_name,
                       char *out, size_t out_sz)
 {
-    char needle[256];
-    snprintf(needle, sizeof(needle), "%s:", hdr_name);
+    char needle[258]; /* name + ": " + NUL */
+    int nlen = snprintf(needle, sizeof(needle), "%s:", hdr_name);
+    if (nlen < 0) return 0;
     const char *p = strstr(req, needle);
     if (!p) {
         /* try lowercase */
@@ -175,9 +181,15 @@ static int get_header(const char *req, const char *hdr_name,
         size_t i;
         for (i = 0; hdr_name[i] && i < sizeof(lc)-1; i++)
             lc[i] = (hdr_name[i] >= 'A' && hdr_name[i] <= 'Z')
-                     ? hdr_name[i] + 32 : hdr_name[i];
+                     ? (char)(hdr_name[i] + 32) : hdr_name[i];
         lc[i] = '\0';
-        snprintf(needle, sizeof(needle), "%s:", lc);
+        /* Rebuild needle from lc; lc is always shorter than needle */
+        size_t lc_needle_len = strlen(lc) + 2;
+        if (lc_needle_len < sizeof(needle)) {
+            memcpy(needle, lc, strlen(lc));
+            needle[strlen(lc)]   = ':';
+            needle[strlen(lc)+1] = '\0';
+        }
         p = strstr(req, needle);
     }
     if (!p) return 0;
@@ -264,7 +276,10 @@ static int normalize_telegram(const char *body, char *out, size_t out_sz)
         if (tp) {
             char tmp[MAX_FIELD_BYTES] = {0};
             json_get_string(tp - 1, "text", tmp, sizeof(tmp));
-            if (tmp[0]) strncpy(text, tmp, sizeof(text) - 1);
+            if (tmp[0]) {
+                memcpy(text, tmp, sizeof(text) - 1);
+                text[sizeof(text) - 1] = '\0';
+            }
         }
     }
 

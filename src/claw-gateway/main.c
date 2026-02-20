@@ -87,9 +87,11 @@ static void emit_json(int fd, int status, const char *body)
         status == 200 ? "OK" : status == 400 ? "Bad Request" : "Internal Server Error",
         strlen(body));
     if (hlen > 0) {
-        write(fd, hdr, (size_t)hlen);
+        ssize_t r = write(fd, hdr, (size_t)hlen);
+        (void)r;
     }
-    write(fd, body, strlen(body));
+    ssize_t r = write(fd, body, strlen(body));
+    (void)r;
 }
 
 /*
@@ -189,8 +191,9 @@ static char *dispatch_to_agent(const char *json_msg)
 
     /* Write the JSON message followed by a newline delimiter */
     size_t msglen = strlen(json_msg);
-    write(in_fd, json_msg, msglen);
-    write(in_fd, "\n", 1);
+    ssize_t wr;
+    wr = write(in_fd, json_msg, msglen); (void)wr;
+    wr = write(in_fd, "\n", 1);         (void)wr;
     close(in_fd);
 
     /* Open the reply FIFO and wait for the agent's response */

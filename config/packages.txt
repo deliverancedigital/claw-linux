@@ -19,6 +19,7 @@ bind-tools
 iputils
 net-tools
 openssh-client
+openssh-server
 
 # Development tools
 git
@@ -27,6 +28,7 @@ gcc
 musl-dev
 libffi-dev
 openssl-dev
+curl-dev
 
 # Python runtime (for the autonomous agent)
 python3
@@ -40,3 +42,29 @@ grep
 
 # Process management
 htop
+
+# ── Desktop (XFCE) ────────────────────────────────────────────────────────────
+# Installed when CLAW_MODE=desktop or when building a bare-metal ISO.
+# These are listed here for reference; the ISO build script installs them
+# via apk in the live environment overlay.
+# xfce4
+# xfce4-terminal
+# xfce4-panel
+# xfce4-settings
+# xfwm4
+# xfdesktop
+# xfce4-session
+# lightdm
+# lightdm-gtk-greeter
+# dbus-x11
+# xorg-server
+# xf86-video-vesa
+# xf86-input-libinput
+# mesa-dri-gallium
+# font-dejavu
+# adwaita-icon-theme
+# network-manager
+# network-manager-applet
+# mousepad
+# ristretto
+# thunar

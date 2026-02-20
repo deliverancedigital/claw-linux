@@ -33,6 +33,34 @@ model:
   anthropic:
     api_key: ""          # or set OPENCLAW_ANTHROPIC_API_KEY
 
+# ── Native Gateway ────────────────────────────────────────────────────────────
+# claw-gateway: native C HTTP control plane (replaces Node.js OpenClaw gateway)
+gateway:
+  # Port the claw-gateway binary listens on (matches OpenClaw default)
+  port: 18789
+  # Bind address (127.0.0.1 = localhost only; 0.0.0.0 = all interfaces)
+  bind: "127.0.0.1"
+  # FIFO paths for agent ↔ gateway IPC
+  fifo_in:  "/var/lib/claw/gateway.in"
+  fifo_out: "/var/lib/claw/gateway.out"
+
+# ── Channel Adapter ───────────────────────────────────────────────────────────
+# claw-channel: native C webhook receiver for inbound messages from platforms
+channel_adapter:
+  port: 18790
+  bind: "127.0.0.1"
+  # Shared secret validated via X-Claw-Secret header (leave blank to disable)
+  secret: ""            # or set CLAW_CHANNEL_SECRET
+  # URL of the gateway event endpoint this adapter forwards to
+  gateway_url: "http://127.0.0.1:18789/api/event"
+
+# ── Automation ────────────────────────────────────────────────────────────────
+automation:
+  # Path to the crontab file read by claw-cron
+  crontab: "/opt/claw/config/crontab"
+  # Log file for claw-cron (use "-" for stdout)
+  log: "/var/lib/claw/cron.log"
+
 skills:
   # Allow the agent to run shell commands
   shell:
@@ -68,6 +96,21 @@ skills:
     timeout: 15
     # User-agent string sent with HTTP requests
     user_agent: "claw-linux/1.0 (OpenClaw-compatible autonomous agent)"
+
+  # Allow the agent to send messages to external channels
+  channel:
+    enabled: true
+    channels:
+      telegram:
+        token: ""              # or set CLAW_TELEGRAM_TOKEN
+        default_chat_id: ""   # fallback chat ID when recipient not specified
+      discord:
+        webhook_url: ""        # or set CLAW_DISCORD_WEBHOOK
+      slack:
+        webhook_url: ""        # or set CLAW_SLACK_WEBHOOK
+      webhook:
+        url: ""                # or set CLAW_WEBHOOK_URL
+        secret: ""             # or set CLAW_CHANNEL_SECRET
 
 api:
   # Expose a REST API for external control (e.g. messaging integrations)

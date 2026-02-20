@@ -1,16 +1,31 @@
 # claw-linux
 
-**claw-linux** is an Alpine Linux-based operating system distribution built to run [OpenClaw](https://open-claw.org/) — an open-source, locally-hosted autonomous AI agent that acts on your behalf while keeping all data private on your own hardware.
+**claw-linux** is an Alpine Linux-based operating system built to run a fully native, zero-Node.js implementation of the [OpenClaw](https://github.com/openclaw/openclaw) autonomous AI agent stack. All core OpenClaw components — gateway, channels, skills, automation, and runtime — are re-implemented as native C binaries with direct kernel access. No Node.js runtime is required.
+
+## What's inside
+
+| Component | Binary | Description |
+|---|---|---|
+| **Gateway** | `claw-gateway` | Native HTTP control plane (port 18789, matching openclaw default) — replaces the Node.js OpenClaw Gateway |
+| **Channel adapter** | `claw-channel` | Webhook receiver for Telegram, Discord, Slack, and generic webhooks (port 18790) |
+| **Shell skill** | `claw-shell` | Sandboxed shell command execution with blocked-command policy |
+| **Filesystem skill** | `claw-fs` | Allowlisted file read/write/list with path safety |
+| **Web fetch skill** | `claw-fetch` | libcurl-backed HTTPS fetch with TLS verification |
+| **Cron scheduler** | `claw-cron` | Native cron daemon for automation tasks |
+| **Python agent** | `agent/main.py` | ReAct-loop agent with Ollama/OpenAI/Anthropic backends |
 
 ## Features
 
 - **Minimal footprint** — Built on Alpine Linux for a lean, fast, secure base.
-- **Autonomous AI agent** — Full OpenClaw-compatible agent runtime included.
-- **Skill/plugin system** — Shell execution, filesystem access, web browsing, and more.
-- **Persistent memory** — Agent remembers context and preferences across sessions.
-- **Model agnostic** — Works with OpenAI, Anthropic Claude, or local models via Ollama.
-- **Private by default** — No data leaves your machine unless you explicitly allow it.
-- **Docker & bare-metal** — Run as a container or build an ISO for dedicated hardware.
+- **No Node.js required** — All OpenClaw components re-implemented in native C.
+- **Native kernel access** — C binaries run with full OS-level capabilities.
+- **Channels** — Telegram, Discord, Slack, generic webhooks (inbound + outbound).
+- **Automation** — Native cron scheduler (`claw-cron`) + Python automation API.
+- **Persistent memory** — Agent remembers context across sessions.
+- **Model agnostic** — Ollama, OpenAI, or Anthropic Claude.
+- **Private by default** — No data leaves your machine unless you allow it.
+- **Docker & bare metal** — Run as a container or build an ISO for dedicated hardware.
+- **XFCE desktop** — Full graphical desktop environment for bare metal installs with XFCE + LightDM auto-login.
 
 ## Quick Start (Docker)
 
@@ -19,29 +34,107 @@
 git clone https://github.com/deliverancedigital/claw-linux.git
 cd claw-linux
 
-# Build and start
+# Build and start the agent
 make build
 make run
 
-# Or use Docker Compose for the full stack
+# Or use Docker Compose for the full stack (agent + Ollama)
 docker compose up -d
+```
+
+## Running Individual Services
+
+```bash
+# Start the native gateway control plane
+docker run --rm -it -e CLAW_MODE=gateway -p 18789:18789 claw-linux
+
+# Start the channel adapter (Telegram/Discord/Slack webhooks)
+docker run --rm -it -e CLAW_MODE=channel -p 18790:18790 claw-linux
+
+# Start the cron automation scheduler
+docker run --rm -it -e CLAW_MODE=cron claw-linux
+
+# Interactive shell
+make shell
+
+# Full stack via Compose profiles
+docker compose --profile gateway up -d    # gateway + channel adapter
+docker compose --profile automation up -d # cron scheduler
+docker compose --profile api up -d        # REST API
 ```
 
 ## Building from Source
 
 ```bash
+# Build all 6 C binaries locally (requires gcc + libcurl-dev)
+make binaries
+
+# Run all smoke tests
+make test
+
 # Build the Docker image
 make build
 
-# Run an interactive shell inside the OS
+# Open a shell inside the container
 make shell
-
-# Run the autonomous agent
-make agent
-
-# View agent logs
-make logs
 ```
+
+## Bare Metal Installation (Alpine Linux + XFCE)
+
+### Option A: Build a bootable ISO
+
+```bash
+# Build using Docker (recommended — no host dependencies)
+make iso-docker
+
+# Or build directly on an Alpine host
+make iso
+
+# The ISO is written to dist/claw-linux-<date>.iso
+# Write to USB (replace /dev/sdX):
+dd if=dist/claw-linux-*.iso of=/dev/sdX bs=4M status=progress
+```
+
+The ISO boots into a choice of:
+- **XFCE Desktop** — full graphical environment with the claw agent terminal auto-started
+- **Agent-only (headless)** — claw agent running as a service, accessible via SSH/serial
+- **Shell only** — minimal Alpine shell
+
+### Option B: Install onto an existing Alpine system
+
+```bash
+# On a fresh Alpine Linux installation (as root):
+sh /opt/claw/scripts/setup-desktop.sh
+```
+
+This installs XFCE, LightDM (with auto-login as `claw`), all OpenRC services, and the claw agent desktop autostart entry.
+
+### OpenRC Services (Alpine bare metal)
+
+After installation, services are managed with OpenRC:
+
+```bash
+# Start all services
+rc-service claw-gateway start
+rc-service claw-channel start
+rc-service claw-cron    start
+rc-service claw-agent   start
+
+# Enable on boot
+rc-update add claw-gateway default
+rc-update add claw-channel default
+rc-update add claw-cron    default
+rc-update add claw-agent   default
+```
+
+OpenRC init scripts are in `scripts/init/`:
+
+| Script | Service | Description |
+|---|---|---|
+| `claw-gateway` | claw-gateway | HTTP gateway daemon |
+| `claw-channel` | claw-channel | Channel webhook adapter |
+| `claw-cron` | claw-cron | Cron automation scheduler |
+| `claw-agent` | claw-agent | Python AI agent |
 
 ## Configuration
 
@@ -59,32 +152,97 @@ Key settings in `config/agent.yaml`:
 | `model.provider` | LLM provider: `openai`, `anthropic`, or `ollama` |
 | `model.name` | Model name (e.g. `gpt-4o`, `claude-3-5-sonnet`, `llama3.2`) |
 | `agent.name` | Name of your agent |
-| `agent.memory_enabled` | Enable persistent memory across sessions |
-| `skills.*` | Enable/disable individual skill modules |
+| `gateway.port` | Port for the native HTTP gateway (default: 18789) |
+| `channel_adapter.port` | Port for the webhook channel adapter (default: 18790) |
+| `automation.crontab` | Path to the crontab file for `claw-cron` |
+| `skills.channel.channels.telegram.token` | Telegram bot token |
+| `skills.channel.channels.discord.webhook_url` | Discord incoming webhook URL |
+| `skills.channel.channels.slack.webhook_url` | Slack incoming webhook URL |
+
+## Channel Integration
+
+### Inbound (receiving messages)
+
+Point your platform's webhook at the `claw-channel` adapter:
+
+| Platform | Webhook URL |
+|---|---|
+| Telegram | `http://your-host:18790/channel/telegram` |
+| Discord | `http://your-host:18790/channel/discord` |
+| Slack | `http://your-host:18790/channel/slack` |
+| Generic | `http://your-host:18790/channel/webhook` |
+
+### Outbound (agent sending messages)
+
+The agent uses the `channel` skill:
+
+```
+SKILL_CALL: {"skill": "channel", "channel": "telegram", "message": "Hello!", "recipient": "@username"}
+SKILL_CALL: {"skill": "channel", "channel": "discord",  "message": "Task complete."}
+SKILL_CALL: {"skill": "channel", "channel": "slack",    "message": "Done."}
+```
+
+## Automation (Crontab)
+
+Edit `config/crontab` to schedule automated tasks:
+
+```cron
+# Run a health check every 5 minutes
+*/5 * * * * echo '{"command":"echo ping","timeout":5}' | /usr/local/bin/claw-shell
+
+# Daily memory summarisation at 02:00
+0 2 * * * python3 /opt/claw/agent/main.py "Summarise today's memory"
+
+# Run once at startup
+@reboot python3 /opt/claw/agent/main.py "System started. Report status."
+```
+
+Send `SIGHUP` to `claw-cron` to reload without restarting.
 
 ## Project Structure
 
 ```
 claw-linux/
-├── Dockerfile              # Alpine Linux OS image definition
-├── docker-compose.yml      # Multi-service deployment
-├── Makefile                # Build and management automation
+├── Dockerfile              # Multi-stage: builder + runtime + iso-builder
+├── docker-compose.yml      # Full stack: agent, gateway, channel, cron, Ollama
+├── Makefile                # Build, test, ISO, and compose targets
 ├── config/
-│   ├── packages.txt        # Alpine apk packages installed in the OS
-│   └── agent.yaml          # Default agent configuration
+│   ├── packages.txt        # Alpine apk packages
+│   ├── agent.yaml          # Agent + gateway + channel + automation config
+│   └── crontab             # Default automation schedule
 ├── scripts/
-│   ├── entrypoint.sh       # Container startup entrypoint
-│   └── setup-agent.sh      # Agent dependency installation script
+│   ├── entrypoint.sh       # Container entrypoint (all CLAW_MODE values)
+│   ├── setup-agent.sh      # Python dependency installer
+│   ├── setup-desktop.sh    # Bare metal XFCE desktop installer
+│   ├── build-iso.sh        # Alpine + XFCE bootable ISO builder
+│   └── init/               # OpenRC init scripts for bare metal
+│       ├── claw-gateway    # Gateway service
+│       ├── claw-channel    # Channel adapter service
+│       ├── claw-cron       # Cron scheduler service
+│       └── claw-agent      # Python agent service
+├── src/                    # Native C binaries (no Node.js)
+│   ├── Makefile
+│   ├── common/
+│   │   └── claw_json.h     # Minimal JSON helper (shared by all binaries)
+│   ├── claw-gateway/       # HTTP control plane gateway
+│   ├── claw-channel/       # Webhook channel adapter
+│   ├── claw-shell/         # Shell execution skill
+│   ├── claw-fs/            # Filesystem skill
+│   ├── claw-fetch/         # Web fetch skill
+│   └── claw-cron/          # Cron automation scheduler
 └── agent/
     ├── main.py             # Agent entry point
     ├── requirements.txt    # Python dependencies
     ├── core/
-    │   ├── agent.py        # Core autonomous agent loop
+    │   ├── agent.py        # ReAct agent loop
     │   └── config.py       # Configuration loader
     ├── skills/
-    │   ├── shell.py        # Shell command execution skill
-    │   ├── filesystem.py   # File system read/write skill
-    │   └── web.py          # Web search/fetch skill
+    │   ├── shell.py        # Shell skill (wraps claw-shell)
+    │   ├── filesystem.py   # Filesystem skill (wraps claw-fs)
+    │   ├── web.py          # Web skill (wraps claw-fetch)
+    │   └── channel.py      # Channel dispatch skill (outbound)
+    ├── automation/
+    │   └── cron.py         # Crontab read/write API
     └── memory/
         └── store.py        # Persistent memory store
 ```
@@ -93,6 +251,7 @@ claw-linux/
 
 | Variable | Description | Default |
 |---|---|---|
+| `CLAW_MODE` | Service mode: `agent\|api\|gateway\|channel\|cron\|desktop\|shell` | `agent` |
 | `OPENCLAW_MODEL_PROVIDER` | LLM provider | `ollama` |
 | `OPENCLAW_MODEL_NAME` | Model name | `llama3.2` |
 | `OPENCLAW_OLLAMA_HOST` | Ollama API host | `http://localhost:11434` |
@@ -100,16 +259,22 @@ claw-linux/
 | `OPENCLAW_ANTHROPIC_API_KEY` | Anthropic API key | — |
 | `OPENCLAW_AGENT_NAME` | Agent display name | `Claw` |
 | `OPENCLAW_LOG_LEVEL` | Log level | `INFO` |
+| `CLAW_GATEWAY_PORT` | Gateway listen port | `18789` |
+| `CLAW_GATEWAY_BIND` | Gateway bind address | `0.0.0.0` |
+| `CLAW_CHANNEL_PORT` | Channel adapter port | `18790` |
+| `CLAW_CHANNEL_SECRET` | Shared secret for webhook validation | — |
+| `CLAW_TELEGRAM_TOKEN` | Telegram bot token | — |
+| `CLAW_DISCORD_WEBHOOK` | Discord incoming webhook URL | — |
+| `CLAW_SLACK_WEBHOOK` | Slack incoming webhook URL | — |
+| `CLAW_CRONTAB` | Path to crontab file | `/opt/claw/config/crontab` |
 
 ## Security
 
-The agent can execute shell commands and access the filesystem. To reduce risk:
-
-- Run in an unprivileged Docker container (default in this repo).
-- Restrict Docker volume mounts to only directories the agent needs.
-- Use read-only mounts where write access is not required.
-- Audit enabled skills in `config/agent.yaml` and disable what you don't need.
-- Never expose the agent API port to the public internet without authentication.
+- All C binaries enforce blocked-command policies and path allowlists at the kernel syscall level.
+- The agent runs as an unprivileged `claw` user in Docker.
+- Webhook validation uses a shared secret (`CLAW_CHANNEL_SECRET`) via `X-Claw-Secret` header.
+- TLS peer verification is enforced on all outbound HTTPS requests (`claw-fetch`).
+- Never expose the gateway or channel adapter ports to the public internet without authentication.
 
 ## License
 
