@@ -94,6 +94,10 @@ test: binaries
 	@src/bin/claw-channel -h 2>&1 || true
 	@echo "=== claw-cron: --help ==="
 	@src/bin/claw-cron -h 2>&1 || true
+	@echo "=== claw-daemon: status ==="
+	@src/bin/claw-daemon status 2>&1 || true
+	@echo "=== claw-tui: --help ==="
+	@src/bin/claw-tui -h 2>&1 || true
 	@echo "=== All smoke tests passed ==="
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────

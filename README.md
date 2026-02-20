@@ -12,6 +12,8 @@
 | **Filesystem skill** | `claw-fs` | Allowlisted file read/write/list with path safety |
 | **Web fetch skill** | `claw-fetch` | libcurl-backed HTTPS fetch with TLS verification |
 | **Cron scheduler** | `claw-cron` | Native cron daemon for automation tasks |
+| **Service manager** | `claw-daemon` | Start/stop/restart/status for all claw services using PID files |
+| **Terminal UI** | `claw-tui` | Interactive readline-style chat interface connecting to the local gateway |
 | **Python agent** | `agent/main.py` | ReAct-loop agent with Ollama/OpenAI/Anthropic backends |
 
 ## Features
@@ -63,10 +65,60 @@ docker compose --profile automation up -d # cron scheduler
 docker compose --profile api up -d        # REST API
 ```
 
+## Service Manager (claw-daemon)
+
+`claw-daemon` manages the lifecycle of all claw-linux services using PID files.  It is the
+recommended way to run services on bare metal without a full init system.
+
+```bash
+# Start all services
+claw-daemon start gateway
+claw-daemon start channel
+claw-daemon start cron
+claw-daemon start agent
+
+# Check status of all services
+claw-daemon status
+
+# Stop a service
+claw-daemon stop cron
+
+# Restart a service
+claw-daemon restart gateway
+
+# Reload claw-cron crontab without restarting
+claw-daemon reload cron
+```
+
+PID files are written to `/var/run/claw/` and logs go to `/var/log/claw/`.
+
+## Terminal Chat UI (claw-tui)
+
+`claw-tui` is an interactive terminal interface for chatting with the agent via the gateway.
+
+```bash
+# Connect to the local gateway and chat
+claw-tui
+
+# Connect to a remote gateway
+claw-tui -g http://my-server:18789
+
+# Use a named session
+claw-tui -s my-project
+```
+
+Inside `claw-tui`:
+- Type a message and press Enter to send it to the agent
+- `/status` — check gateway health
+- `/session <ID>` — switch to a different conversation session
+- `/clear` — clear the screen
+- `/help` — show all commands
+- `/quit` or Ctrl-D — exit
+
 ## Building from Source
 
 ```bash
-# Build all 6 C binaries locally (requires gcc + libcurl-dev)
+# Build all 8 C binaries locally (requires gcc + libcurl-dev)
 make binaries
 
 # Run all smoke tests
@@ -229,7 +281,9 @@ claw-linux/
 │   ├── claw-shell/         # Shell execution skill
 │   ├── claw-fs/            # Filesystem skill
 │   ├── claw-fetch/         # Web fetch skill
-│   └── claw-cron/          # Cron automation scheduler
+│   ├── claw-cron/          # Cron automation scheduler
+│   ├── claw-daemon/        # Service lifecycle manager
+│   └── claw-tui/           # Interactive terminal chat UI
 └── agent/
     ├── main.py             # Agent entry point
     ├── requirements.txt    # Python dependencies
