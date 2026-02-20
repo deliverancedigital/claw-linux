@@ -17,12 +17,14 @@
  *   telegram  — Telegram Bot API update object
  *   discord   — Discord Interactions / gateway webhook payload
  *   slack     — Slack Events API payload
+ *   line      — LINE Messaging API webhook
+ *   whatsapp  — WhatsApp Business API webhook
  *   webhook   — Generic flat JSON: { "message": "...", "sender": "..." }
  *
  * Normalised envelope (sent to gateway)
  * --------------------------------------
  *   {
- *     "channel": "<telegram|discord|slack|webhook>",
+ *     "channel": "<telegram|discord|slack|line|whatsapp|webhook>",
  *     "sender":  "<username or ID>",
  *     "message": "<plain text of the message>",
  *     "raw":     "<original payload, JSON-escaped>"
@@ -38,6 +40,8 @@
  *                              (compared against X-Claw-Secret header)
  *   CLAW_TELEGRAM_TOKEN        Telegram bot token (used to validate
  *                              X-Telegram-Bot-Api-Secret-Token header)
+ *   CLAW_LINE_SECRET           LINE channel secret for signature validation
+ *   CLAW_WHATSAPP_TOKEN        WhatsApp verify token (used during webhook setup)
  *
  * Build (requires libcurl-dev):
  *   cc -O2 -Wall -Wextra -o claw-channel main.c -lcurl
@@ -348,6 +352,136 @@ static int normalize_slack(const char *body, char *out, size_t out_sz)
 }
 
 /*
+ * Normalize a LINE Messaging API webhook payload.
+ *
+ * LINE sends:
+ *   {
+ *     "destination": "<userId>",
+ *     "events": [{
+ *       "type": "message",
+ *       "message": { "type": "text", "text": "..." },
+ *       "source":  { "userId": "...", "type": "user" }
+ *     }]
+ *   }
+ */
+static int normalize_line(const char *body, char *out, size_t out_sz)
+{
+    char text[MAX_FIELD_BYTES]   = {0};
+    char sender[256]             = {0};
+    char text_esc[MAX_FIELD_BYTES * 2] = {0};
+    char sender_esc[512]         = {0};
+    char body_esc[MAX_FIELD_BYTES * 2] = {0};
+
+    /* Extract text from events[0].message.text */
+    const char *tp = strstr(body, "\"text\"");
+    if (tp) {
+        /* Skip to value after the colon */
+        const char *vp = tp + 6;
+        while (*vp == ' ' || *vp == ':' || *vp == '\t') vp++;
+        if (*vp == '"') {
+            vp++;
+            size_t ti = 0;
+            while (*vp && *vp != '"' && ti < sizeof(text) - 1)
+                text[ti++] = *vp++;
+            text[ti] = '\0';
+        }
+    }
+
+    /* Extract userId from source.userId */
+    json_get_string(body, "userId", sender, sizeof(sender));
+    if (!sender[0]) {
+        const char *sp = strstr(body, "\"userId\"");
+        if (sp) {
+            sp += 8;
+            while (*sp == ' ' || *sp == ':' || *sp == '\t') sp++;
+            if (*sp == '"') {
+                sp++;
+                size_t si = 0;
+                while (*sp && *sp != '"' && si < sizeof(sender) - 1)
+                    sender[si++] = *sp++;
+                sender[si] = '\0';
+            }
+        }
+    }
+    if (!sender[0]) snprintf(sender, sizeof(sender), "line-user");
+
+    json_escape(text,   text_esc,   sizeof(text_esc));
+    json_escape(sender, sender_esc, sizeof(sender_esc));
+    json_escape(body,   body_esc,   sizeof(body_esc));
+
+    return snprintf(out, out_sz,
+        "{\"channel\":\"line\","
+        "\"sender\":\"%s\","
+        "\"message\":\"%s\","
+        "\"raw\":\"%s\"}",
+        sender_esc, text_esc, body_esc) > 0;
+}
+
+/*
+ * Normalize a WhatsApp Business API webhook payload.
+ *
+ * WhatsApp sends:
+ *   {
+ *     "object": "whatsapp_business_account",
+ *     "entry": [{
+ *       "changes": [{
+ *         "value": {
+ *           "messages": [{ "from": "...", "text": { "body": "..." } }]
+ *         }
+ *       }]
+ *     }]
+ *   }
+ */
+static int normalize_whatsapp(const char *body, char *out, size_t out_sz)
+{
+    char text[MAX_FIELD_BYTES]   = {0};
+    char sender[256]             = {0};
+    char text_esc[MAX_FIELD_BYTES * 2] = {0};
+    char sender_esc[512]         = {0};
+    char body_esc[MAX_FIELD_BYTES * 2] = {0};
+
+    /* Extract from: messages[0].from */
+    const char *fp = strstr(body, "\"from\"");
+    if (fp) {
+        fp += 6;
+        while (*fp == ' ' || *fp == ':' || *fp == '\t') fp++;
+        if (*fp == '"') {
+            fp++;
+            size_t si = 0;
+            while (*fp && *fp != '"' && si < sizeof(sender) - 1)
+                sender[si++] = *fp++;
+            sender[si] = '\0';
+        }
+    }
+    if (!sender[0]) snprintf(sender, sizeof(sender), "whatsapp-user");
+
+    /* Extract body: messages[0].text.body */
+    const char *bp = strstr(body, "\"body\"");
+    if (bp) {
+        bp += 6;
+        while (*bp == ' ' || *bp == ':' || *bp == '\t') bp++;
+        if (*bp == '"') {
+            bp++;
+            size_t ti = 0;
+            while (*bp && *bp != '"' && ti < sizeof(text) - 1)
+                text[ti++] = *bp++;
+            text[ti] = '\0';
+        }
+    }
+
+    json_escape(text,   text_esc,   sizeof(text_esc));
+    json_escape(sender, sender_esc, sizeof(sender_esc));
+    json_escape(body,   body_esc,   sizeof(body_esc));
+
+    return snprintf(out, out_sz,
+        "{\"channel\":\"whatsapp\","
+        "\"sender\":\"%s\","
+        "\"message\":\"%s\","
+        "\"raw\":\"%s\"}",
+        sender_esc, text_esc, body_esc) > 0;
+}
+
+/*
  * Generic webhook: expects { "message": "...", "sender": "..." }
  */
 static int normalize_webhook(const char *body, char *out, size_t out_sz)
@@ -423,6 +557,10 @@ static void handle_connection(int cfd, const char *req, size_t req_len)
         ok = normalize_discord(body, envelope, sizeof(envelope));
     } else if (strcmp(path, "/channel/slack") == 0) {
         ok = normalize_slack(body, envelope, sizeof(envelope));
+    } else if (strcmp(path, "/channel/line") == 0) {
+        ok = normalize_line(body, envelope, sizeof(envelope));
+    } else if (strcmp(path, "/channel/whatsapp") == 0) {
+        ok = normalize_whatsapp(body, envelope, sizeof(envelope));
     } else if (strcmp(path, "/channel/webhook") == 0 ||
                strcmp(path, "/channel") == 0) {
         ok = normalize_webhook(body, envelope, sizeof(envelope));
@@ -430,7 +568,8 @@ static void handle_connection(int cfd, const char *req, size_t req_len)
         http_respond(cfd, 404,
             "{\"ok\":false,\"error\":\"Unknown channel path\","
             "\"paths\":[\"/channel/telegram\",\"/channel/discord\","
-            "\"/channel/slack\",\"/channel/webhook\"]}");
+            "\"/channel/slack\",\"/channel/line\",\"/channel/whatsapp\","
+            "\"/channel/webhook\"]}");
         return;
     }
 
@@ -514,6 +653,8 @@ int main(int argc, char *argv[])
         "  POST /channel/telegram  — Telegram Bot API updates\n"
         "  POST /channel/discord   — Discord webhook events\n"
         "  POST /channel/slack     — Slack Events API\n"
+        "  POST /channel/line      — LINE Messaging API\n"
+        "  POST /channel/whatsapp  — WhatsApp Business API\n"
         "  POST /channel/webhook   — Generic webhook\n"
         "  GET  /health            — liveness probe\n"
         "  Forwarding to: %s\n",

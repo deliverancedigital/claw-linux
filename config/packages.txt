@@ -43,6 +43,19 @@ grep
 # Process management
 htop
 
+# ── claw-linux skill binary dependencies ─────────────────────────────────────
+# Required by specific claw-linux skill binaries.
+# espeak-ng: claw-tts (text-to-speech)
+# mpv:       claw-media (media playback)
+# ffmpeg:    claw-media (metadata via ffprobe)
+# xdg-utils: claw-browser, claw-canvas (xdg-open on XFCE/Wayland)
+# w3m:       claw-browser (headless fallback text browser)
+espeak-ng
+mpv
+ffmpeg
+xdg-utils
+w3m
+
 # ── Desktop (XFCE) ────────────────────────────────────────────────────────────
 # Installed when CLAW_MODE=desktop or when building a bare-metal ISO.
 # These are listed here for reference; the ISO build script installs them
