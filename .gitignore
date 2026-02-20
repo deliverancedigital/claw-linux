@@ -1,0 +1,44 @@
+# Build artifacts
+dist/
+build/
+*.tar.gz
+*.iso
+
+# C build output
+src/bin/
+
+# CodeQL
+_codeql_detected_source_root
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Node.js
+node_modules/
+npm-debug.log
+
+# Docker
+.docker/
+
+# OS / editor files
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Agent runtime data (user-specific)
+agent/memory/data/
+agent/logs/
+*.log
+
+# Secrets / environment
+.env
+.env.*
+secrets.yaml

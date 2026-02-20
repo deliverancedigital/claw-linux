@@ -1,0 +1,76 @@
+# claw-linux agent configuration
+# All values can be overridden via environment variables prefixed with OPENCLAW_
+# e.g. model.provider -> OPENCLAW_MODEL_PROVIDER
+
+agent:
+  # Display name shown in prompts and logs
+  name: "Claw"
+  # Enable persistent memory across sessions
+  memory_enabled: true
+  # Directory where the agent stores its memory database
+  memory_dir: "/var/lib/claw/memory"
+  # Maximum number of previous turns kept in the active context window
+  context_window: 20
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  log_level: "INFO"
+
+model:
+  # LLM provider: ollama | openai | anthropic
+  provider: "ollama"
+  # Model name — must exist in the chosen provider
+  name: "llama3.2"
+  # Temperature (0.0 = deterministic, 1.0 = creative)
+  temperature: 0.3
+  # Maximum tokens for a single LLM response
+  max_tokens: 4096
+
+  # Provider-specific settings (leave blank if not used)
+  ollama:
+    host: "http://localhost:11434"
+  openai:
+    api_key: ""          # or set OPENCLAW_OPENAI_API_KEY
+    base_url: "https://api.openai.com/v1"
+  anthropic:
+    api_key: ""          # or set OPENCLAW_ANTHROPIC_API_KEY
+
+skills:
+  # Allow the agent to run shell commands
+  shell:
+    enabled: true
+    # Commands in this list are never executed regardless of agent requests
+    blocked_commands:
+      - "rm -rf /"
+      - "mkfs"
+      - "dd if=/dev/zero"
+    # Maximum seconds a shell command is allowed to run
+    timeout: 30
+
+  # Allow the agent to read and write files
+  filesystem:
+    enabled: true
+    # Restrict file access to these directories (empty = unrestricted)
+    allowed_paths:
+      - "/workspace"
+      - "/var/lib/claw"
+    # Never allow writes outside this list even if allowed_paths is empty
+    read_only_paths:
+      - "/etc"
+      - "/usr"
+      - "/bin"
+      - "/sbin"
+
+  # Allow the agent to fetch web pages and search the web
+  web:
+    enabled: true
+    # Maximum response size in bytes to avoid memory exhaustion
+    max_response_bytes: 1048576   # 1 MB
+    # Request timeout in seconds
+    timeout: 15
+    # User-agent string sent with HTTP requests
+    user_agent: "claw-linux/1.0 (OpenClaw-compatible autonomous agent)"
+
+api:
+  # Expose a REST API for external control (e.g. messaging integrations)
+  enabled: false
+  host: "127.0.0.1"
+  port: 8080
