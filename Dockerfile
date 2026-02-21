@@ -99,7 +99,7 @@ ENV CLAW_MODE=agent \
 # Gateway port (18789 matches openclaw default) and channel adapter port
 EXPOSE 8080 18789 18790
 
-ENTRYPOINT ["/bin/sh", "/opt/claw/scripts/entrypoint.sh"]
+ENTRYPOINT ["/opt/claw/scripts/entrypoint.sh"]
 
 # ============================================================================
 # Stage 3 — ISO build environment (bare metal / XFCE)
@@ -145,4 +145,4 @@ WORKDIR /opt/claw
 
 # Running this container produces an ISO at /dist/claw-linux-<date>.iso
 CMD ["/bin/sh", "-c", \
-    "mkdir -p /dist && CLAW_REPO=/opt/claw sh /opt/claw/scripts/build-iso.sh /dist"]
+    "mkdir -p /dist && CLAW_REPO=/opt/claw /opt/claw/scripts/build-iso.sh /dist"]

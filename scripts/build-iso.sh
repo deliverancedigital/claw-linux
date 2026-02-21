@@ -105,7 +105,7 @@ XFCE_PKGS="
     xf86-video-vesa xf86-video-fbdev xf86-input-libinput
     mesa-dri-gallium
     font-dejavu adwaita-icon-theme
-    networkmanager
+    networkmanager network-manager-applet
     gvfs gvfs-mtp
     alsa-utils pipewire wireplumber
 "
