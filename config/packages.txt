@@ -17,22 +17,13 @@ wget
 ca-certificates
 bind-tools
 iputils
-net-tools
 openssh-client
-openssh-server
 
-# Development tools
+# Runtime tools
 git
-make
-gcc
-musl-dev
-libffi-dev
-openssl-dev
-curl-dev
 
 # Python runtime (for the autonomous agent)
 python3
-python3-dev
 py3-pip
 
 # Text processing

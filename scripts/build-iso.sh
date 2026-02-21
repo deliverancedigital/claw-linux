@@ -18,7 +18,7 @@
 #   The finished ISO is written to OUTPUT_DIR/claw-linux-<date>.iso
 #
 # Environment variables:
-#   ALPINE_RELEASE   Alpine release branch to base on  (default: v3.21)
+#   ALPINE_RELEASE   Alpine release branch to base on  (default: v3.22)
 #   ALPINE_ARCH      Target architecture               (default: x86_64)
 #   ALPINE_MIRROR    APK mirror URL                    (default: https://dl-cdn.alpinelinux.org/alpine)
 #   ISO_LABEL        ISO volume label                  (default: CLAW-LINUX)
@@ -27,7 +27,7 @@
 set -e
 
 # ── Defaults ────────────────────────────────────────────────────────────────
-ALPINE_RELEASE="${ALPINE_RELEASE:-v3.21}"
+ALPINE_RELEASE="${ALPINE_RELEASE:-v3.22}"
 ALPINE_ARCH="${ALPINE_ARCH:-x86_64}"
 ALPINE_MIRROR="${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
 ISO_LABEL="${ISO_LABEL:-CLAW-LINUX}"
@@ -71,6 +71,7 @@ info "Bootstrapping Alpine ${ALPINE_RELEASE} rootfs…"
 apk --arch "$ALPINE_ARCH" \
     --root "$ROOTFS" \
     --initdb \
+    --keys-dir /etc/apk/keys \
     --repository "${ALPINE_MIRROR}/${ALPINE_RELEASE}/main" \
     --repository "${ALPINE_MIRROR}/${ALPINE_RELEASE}/community" \
     add alpine-base
@@ -87,9 +88,10 @@ info "Installing packages (core + XFCE desktop)…"
 
 CORE_PKGS="
     bash busybox-extras coreutils util-linux procps shadow sudo
-    curl wget ca-certificates openssh-client openssh-server
-    git make gcc musl-dev openssl-dev curl-dev
-    python3 python3-dev py3-pip
+    curl wget ca-certificates openssh-client
+    git
+    linux-lts
+    python3 py3-pip
     jq htop
 "
 
@@ -102,13 +104,14 @@ XFCE_PKGS="
     xorg-server xorg-server-common xinit
     xf86-video-vesa xf86-video-fbdev xf86-input-libinput
     mesa-dri-gallium
-    font-dejavu adwaita-icon-theme gnome-themes-extra
-    network-manager network-manager-applet
+    font-dejavu adwaita-icon-theme
+    networkmanager network-manager-applet
     gvfs gvfs-mtp
     alsa-utils pipewire wireplumber
 "
 
 apk --root "$ROOTFS" \
+    --keys-dir /etc/apk/keys \
     --repository "${ALPINE_MIRROR}/${ALPINE_RELEASE}/main" \
     --repository "${ALPINE_MIRROR}/${ALPINE_RELEASE}/community" \
     add $CORE_PKGS $XFCE_PKGS
@@ -138,8 +141,11 @@ cp -r "$CLAW_REPO/config" "$ROOTFS/opt/claw/config"
 cp -r "$CLAW_REPO/scripts" "$ROOTFS/opt/claw/scripts"
 
 # Install Python dependencies
-chroot "$ROOTFS" pip3 install --no-cache-dir --break-system-packages \
-    pyyaml requests
+apk --root "$ROOTFS" \
+    --keys-dir /etc/apk/keys \
+    --repository "${ALPINE_MIRROR}/${ALPINE_RELEASE}/main" \
+    --repository "${ALPINE_MIRROR}/${ALPINE_RELEASE}/community" \
+    add py3-yaml py3-requests
 
 # ── Stage 5: Create claw user and directories ──────────────────────────────
 info "Creating claw user account…"

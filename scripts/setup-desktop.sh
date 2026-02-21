@@ -21,16 +21,11 @@ error() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 CLAW_HOME="${CLAW_HOME:-/opt/claw}"
 CLAW_USER="${CLAW_USER:-claw}"
 
-# ── 1. Add community repository ───────────────────────────────────────────
+# ── 1. Ensure community repository is enabled ─────────────────────────────
 info "Enabling Alpine community repository…"
 REPO_FILE=/etc/apk/repositories
 # Uncomment any commented-out community line first
 sed -i 's|^#\(.*community\)|\1|' "$REPO_FILE" 2>/dev/null || true
-# Add edge repos only if they are not already present
-grep -qF 'edge/main'      "$REPO_FILE" 2>/dev/null || \
-    printf 'http://dl-cdn.alpinelinux.org/alpine/edge/main\n'      >> "$REPO_FILE"
-grep -qF 'edge/community' "$REPO_FILE" 2>/dev/null || \
-    printf 'http://dl-cdn.alpinelinux.org/alpine/edge/community\n' >> "$REPO_FILE"
 apk update
 
 # ── 2. Install XFCE and display manager ───────────────────────────────────
@@ -45,7 +40,7 @@ apk add --no-cache \
     xf86-video-vesa xf86-video-fbdev xf86-input-libinput \
     mesa-dri-gallium \
     font-dejavu adwaita-icon-theme \
-    network-manager network-manager-applet \
+    networkmanager network-manager-applet \
     alsa-utils
 
 # ── 3. Create claw user if absent ─────────────────────────────────────────
