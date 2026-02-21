@@ -110,7 +110,7 @@ rc-update add networking default 2>/dev/null || true
 # ── 8. Install Python dependencies ────────────────────────────────────────
 if [ -f "$CLAW_HOME/agent/requirements.txt" ]; then
     info "Installing Python agent dependencies…"
-    pip3 install --no-cache-dir -r "$CLAW_HOME/agent/requirements.txt"
+    pip3 install --no-cache-dir --break-system-packages -r "$CLAW_HOME/agent/requirements.txt"
 fi
 
 # ── 9. Summary ────────────────────────────────────────────────────────────

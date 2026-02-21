@@ -49,9 +49,9 @@ to their native C binary equivalents in **claw-linux**.
 | ~~`node-host/`~~ | — | ~~❌~~ | ~~Node.js sub-process host not applicable — claw-linux has no Node.js runtime~~ |
 | ~~`macos/`~~ | — | ~~❌~~ | ~~macOS-specific modules — not applicable to Alpine Linux~~ |
 | ~~`imessage/`~~ | — | ~~❌~~ | ~~Apple iMessage — not applicable to Alpine Linux~~ |
-| `discord/` | `claw-channel` | 🔄 | Discord inbound webhook normalised; outbound channel dispatch via Python agent |
-| `slack/` | `claw-channel` | 🔄 | Slack inbound webhook normalised; outbound channel dispatch via Python agent |
-| `telegram/` | `claw-channel` | 🔄 | Telegram inbound webhook normalised; outbound channel dispatch via Python agent |
+| `discord/` | `claw-channel` | ✅ | Discord inbound webhook normalised; outbound sendMessage via `POST /send` |
+| `slack/` | `claw-channel` | ✅ | Slack inbound webhook normalised; outbound sendMessage via `POST /send` |
+| `telegram/` | `claw-channel` | ✅ | Telegram inbound webhook normalised; outbound sendMessage via `POST /send` |
 | `line/` | `claw-channel` | ✅ | LINE Messaging API webhook normalised and forwarded to gateway |
 | `whatsapp/` | `claw-channel` | ✅ | WhatsApp Business API webhook normalised and forwarded to gateway |
 | `infra/` | Docker / OpenRC | 🔄 | Container and bare-metal infrastructure handled via Dockerfile + OpenRC init scripts |
@@ -114,10 +114,10 @@ which is invoked by the ReAct agent loop:
 - LINE + WhatsApp in `claw-channel`
 - Hook registration in `claw-gateway`
 - Session persistence in `claw-gateway`
-- `claw-wizard.sh` — Interactive setup wizard
+- `claw-wizard.sh` — Interactive setup wizard (port configuration included)
+- Outbound channel dispatch (Telegram/Discord/Slack/LINE/WhatsApp/webhook) via `POST /send` in `claw-channel`
 
 ### Remaining 🔄
 
-- Outbound channel dispatch (Telegram/Discord/Slack/LINE/WhatsApp send) — currently Python-only
 - Separate ACP daemon
 - Specialised CLI sub-commands (devices-cli, nodes-cli, sandbox-cli)

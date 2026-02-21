@@ -100,7 +100,7 @@ add_override() {
 
 # ── Step 1: LLM provider ───────────────────────────────────────────────────
 
-step "1/6  LLM Provider"
+step "1/7  LLM Provider"
 printf "Choose how the agent will run its language model:\n"
 printf "  1) ollama   — local model via Ollama (no API key required)\n"
 printf "  2) openai   — OpenAI GPT models\n"
@@ -117,7 +117,7 @@ add_override "OPENCLAW_MODEL_PROVIDER" "$PROVIDER"
 
 # ── Step 2: Model name ─────────────────────────────────────────────────────
 
-step "2/6  Model Name"
+step "2/7  Model Name"
 case "$PROVIDER" in
     openai)
         MODEL_DEFAULT="gpt-4o"
@@ -140,7 +140,7 @@ add_override "OPENCLAW_MODEL_NAME" "$MODEL"
 
 # ── Step 3: API keys ────────────────────────────────────────────────────────
 
-step "3/6  API Keys"
+step "3/7  API Keys"
 
 if [ "$PROVIDER" = "openai" ]; then
     OPENAI_KEY="$(prompt_secret "OpenAI API key (sk-…)")"
@@ -166,14 +166,53 @@ fi
 
 # ── Step 4: Agent identity ─────────────────────────────────────────────────
 
-step "4/6  Agent Identity"
+step "4/7  Agent Identity"
 AGENT_NAME="$(prompt "Agent name" "Claw")"
 add_override "OPENCLAW_AGENT_NAME" "$AGENT_NAME"
 info "Agent name: $AGENT_NAME"
 
-# ── Step 5: Channel integrations ──────────────────────────────────────────
+# ── Step 5: Network / Ports ────────────────────────────────────────────────
 
-step "5/6  Channel Integrations (optional)"
+step "5/7  Network / Ports"
+printf "Configure the listen ports and bind addresses for the claw services.\n"
+printf "Press Enter to keep the defaults shown in [brackets].\n\n"
+
+GATEWAY_PORT="$(prompt "Gateway port  (claw-gateway)" "18789")"
+GATEWAY_BIND="$(prompt "Gateway bind  (0.0.0.0 = all interfaces, 127.0.0.1 = localhost)" "0.0.0.0")"
+CHANNEL_PORT="$(prompt "Channel port  (claw-channel)" "18790")"
+CHANNEL_BIND="$(prompt "Channel bind  (0.0.0.0 = all interfaces, 127.0.0.1 = localhost)" "0.0.0.0")"
+
+# Validate that the port values look like integers
+validate_port() {
+    case "$1" in
+        ''|*[!0-9]*) error "Invalid port '$1' — must be a number between 1 and 65535." ;;
+    esac
+    if [ "$1" -lt 1 ] || [ "$1" -gt 65535 ]; then
+        error "Port '$1' out of range (1–65535)."
+    fi
+}
+validate_port "$GATEWAY_PORT"
+validate_port "$CHANNEL_PORT"
+
+add_override "CLAW_GATEWAY_PORT" "$GATEWAY_PORT"
+add_override "CLAW_GATEWAY_BIND" "$GATEWAY_BIND"
+add_override "CLAW_CHANNEL_PORT" "$CHANNEL_PORT"
+add_override "CLAW_CHANNEL_BIND" "$CHANNEL_BIND"
+
+# Derive the gateway URL used by the channel adapter
+GATEWAY_URL="http://${GATEWAY_BIND}:${GATEWAY_PORT}/api/event"
+# Prefer loopback for local channel→gateway communication when bind is 0.0.0.0
+if [ "$GATEWAY_BIND" = "0.0.0.0" ]; then
+    GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT}/api/event"
+fi
+add_override "CLAW_GATEWAY_URL" "$GATEWAY_URL"
+
+info "Gateway : ${GATEWAY_BIND}:${GATEWAY_PORT}"
+info "Channel : ${CHANNEL_BIND}:${CHANNEL_PORT}"
+
+# ── Step 6: Channel integrations ──────────────────────────────────────────
+
+step "6/7  Channel Integrations (optional)"
 printf "Set up messaging channel webhooks (press Enter to skip any).\n\n"
 
 TELEGRAM_TOKEN="$(prompt_secret "Telegram bot token (from @BotFather)")"
@@ -196,7 +235,7 @@ fi
 
 # ── Step 6: Desktop / environment ─────────────────────────────────────────
 
-step "6/6  Deployment Target"
+step "7/7  Deployment Target"
 printf "  1) Docker / container\n"
 printf "  2) Bare metal (Alpine Linux + XFCE desktop)\n\n"
 DEPLOY="$(prompt "Deployment target [1/2]" "1")"
@@ -235,11 +274,15 @@ printf "\nTo start the agent:\n"
 if [ "$DEPLOY" = "2" ]; then
     printf "  # Load env and start\n"
     printf "  set -a && . %s && set +a\n" "$ENV_FILE"
-    printf "  claw-daemon start gateway\n"
+    printf "  claw-daemon start gateway   # listens on port %s\n" "$GATEWAY_PORT"
+    printf "  claw-daemon start channel   # listens on port %s\n" "$CHANNEL_PORT"
     printf "  claw-daemon start agent\n"
 else
     printf "  # Docker with env file:\n"
-    printf "  docker run --rm -it --env-file %s claw-linux\n" "$ENV_FILE"
+    printf "  docker run --rm -it --env-file %s \\\\\n" "$ENV_FILE"
+    printf "    -p %s:%s -p %s:%s \\\\\n" \
+        "$GATEWAY_PORT" "$GATEWAY_PORT" "$CHANNEL_PORT" "$CHANNEL_PORT"
+    printf "    claw-linux\n"
     printf "\n  # Or export and run compose:\n"
     printf "  set -a && . %s && set +a\n" "$ENV_FILE"
     printf "  docker compose up -d\n"
