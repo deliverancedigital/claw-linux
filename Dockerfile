@@ -17,10 +17,12 @@
 #   cron     — cron automation scheduler
 #   shell    — interactive bash shell
 
+ARG ALPINE_VERSION=3.22
+
 # ============================================================================
 # Stage 1 — C binary builder
 # ============================================================================
-FROM alpine:3.21 AS builder
+FROM alpine:${ALPINE_VERSION} AS builder
 
 # Install build-time dependencies
 RUN apk add --no-cache \
@@ -42,7 +44,7 @@ RUN make CC=cc CFLAGS="-O2 -Wall -Wextra -static-libgcc"
 # ============================================================================
 # Stage 2 — Runtime OS image (Docker / container deployments)
 # ============================================================================
-FROM alpine:3.21 AS runtime
+FROM alpine:${ALPINE_VERSION} AS runtime
 
 LABEL org.opencontainers.image.title="claw-linux"
 LABEL org.opencontainers.image.description="Alpine Linux OS with OpenClaw autonomous AI agent — native C runtime, no Node.js"
@@ -52,7 +54,8 @@ LABEL org.opencontainers.image.licenses="MIT"
 # Read the package list and install all uncommented, non-blank lines
 COPY config/packages.txt /tmp/packages.txt
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
-RUN grep -v '^\s*#' /tmp/packages.txt | grep -v '^\s*$' | \
+RUN apk upgrade --no-cache && \
+    grep -v '^\s*#' /tmp/packages.txt | grep -v '^\s*$' | \
     xargs apk add --no-cache && \
     rm /tmp/packages.txt
 SHELL ["/bin/sh", "-c"]
@@ -74,7 +77,8 @@ COPY config/ /opt/claw/config/
 
 # Copy scripts and make them executable
 COPY scripts/ /opt/claw/scripts/
-RUN chmod +x /opt/claw/scripts/*.sh
+RUN find /opt/claw/scripts -type f \( -name '*.sh' -o -path '/opt/claw/scripts/init/*' \) -exec sed -i 's/\r$//' {} \; && \
+    chmod +x /opt/claw/scripts/*.sh
 
 # Runtime directories
 RUN mkdir -p /workspace /var/lib/claw/memory /var/log/claw && \
@@ -95,7 +99,7 @@ ENV CLAW_MODE=agent \
 # Gateway port (18789 matches openclaw default) and channel adapter port
 EXPOSE 8080 18789 18790
 
-ENTRYPOINT ["/opt/claw/scripts/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "/opt/claw/scripts/entrypoint.sh"]
 
 # ============================================================================
 # Stage 3 — ISO build environment (bare metal / XFCE)
@@ -103,7 +107,7 @@ ENTRYPOINT ["/opt/claw/scripts/entrypoint.sh"]
 #   docker build --target iso-builder -t claw-linux-iso-builder .
 #   docker run --privileged -v $(pwd)/dist:/dist claw-linux-iso-builder
 # ============================================================================
-FROM alpine:3.21 AS iso-builder
+FROM alpine:${ALPINE_VERSION} AS iso-builder
 
 # Install ISO build toolchain
 RUN apk add --no-cache \
@@ -135,9 +139,10 @@ COPY --from=builder /build/src/bin/ /usr/local/bin/
 COPY . /opt/claw/
 
 RUN chmod +x /opt/claw/scripts/build-iso.sh /opt/claw/scripts/setup-desktop.sh
+RUN find /opt/claw/scripts -type f \( -name '*.sh' -o -path '/opt/claw/scripts/init/*' \) -exec sed -i 's/\r$//' {} \;
 
 WORKDIR /opt/claw
 
 # Running this container produces an ISO at /dist/claw-linux-<date>.iso
 CMD ["/bin/sh", "-c", \
-     "mkdir -p /dist && CLAW_REPO=/opt/claw /opt/claw/scripts/build-iso.sh /dist"]
+    "mkdir -p /dist && CLAW_REPO=/opt/claw sh /opt/claw/scripts/build-iso.sh /dist"]
