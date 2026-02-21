@@ -40,7 +40,7 @@ apk add --no-cache \
     xf86-video-vesa xf86-video-fbdev xf86-input-libinput \
     mesa-dri-gallium \
     font-dejavu adwaita-icon-theme \
-    networkmanager \
+    networkmanager network-manager-applet \
     alsa-utils
 
 # ── 3. Create claw user if absent ─────────────────────────────────────────
